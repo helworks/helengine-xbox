@@ -1,0 +1,15 @@
+# Repository-local generated products only; canonical build outputs live under
+# C:/dev/helworks/builds/helengine-xbox/v01/<build-id>.
+/bin/
+/build/
+/disc/
+*.obj
+*.exe
+*.lib
+*.map
+*.pdb
+*.xbe
+*.iso
+*.c.d
+*.cpp.d
+src/platform/xbox/shaders/*.inl
