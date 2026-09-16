@@ -160,6 +160,17 @@ Set-Content -LiteralPath (Join-Path $logRoot 'source-hashes-before.txt') -Value 
 Copy-Item -LiteralPath (Join-Path $repoRoot 'Makefile') -Destination (Join-Path $workRoot 'Makefile')
 Copy-Item -LiteralPath (Join-Path $repoRoot 'src') -Destination (Join-Path $workRoot 'src') -Recurse
 Get-ChildItem -LiteralPath (Join-Path $workRoot 'src') -Recurse -File -Filter '*.inl' | Remove-Item -Force
+# GNU make and the nxdk shader compilers run on Linux and treat a trailing CR
+# as content; normalize only the staged copies (never the repository files).
+$lineEndingSensitive = @(Get-Item -LiteralPath (Join-Path $workRoot 'Makefile')) +
+    @(Get-ChildItem -LiteralPath (Join-Path $workRoot 'src') -Recurse -File | Where-Object { $_.Extension -in @('.vsh', '.psh') })
+foreach ($file in $lineEndingSensitive) {
+    $bytes = [IO.File]::ReadAllBytes($file.FullName)
+    if ($bytes -contains 13) {
+        $text = [Text.Encoding]::UTF8.GetString($bytes).Replace("`r`n", "`n").Replace("`r", "`n")
+        [IO.File]::WriteAllText($file.FullName, $text, (New-Object Text.UTF8Encoding($false)))
+    }
+}
 
 # --- Container build ---------------------------------------------------------
 $disableCullingValue = if ($DisableCulling) { '1' } else { '0' }

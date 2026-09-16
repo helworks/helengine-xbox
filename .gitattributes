@@ -1,0 +1,9 @@
+# Inputs consumed inside the Linux toolchain container must stay LF even on
+# Windows checkouts with core.autocrlf=true (GNU make and the nxdk shader
+# compilers treat a trailing CR as part of the line).
+Makefile          text eol=lf
+docker/Dockerfile text eol=lf
+*.vsh             text eol=lf
+*.psh             text eol=lf
+*.cpp             text eol=lf
+*.hpp             text eol=lf
