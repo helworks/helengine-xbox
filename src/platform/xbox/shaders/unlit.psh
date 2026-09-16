@@ -1,0 +1,7 @@
+!!RC1.0
+// Helengine Xbox v0.1 unlit register-combiner program.
+// Hand-written RC1.0 text compiled by the pinned nxdk fp20compiler into pbkit
+// push calls (no NVIDIA cgc dependency). No general combiner stages are used;
+// the final combiner passes the interpolated primary (diffuse) colour through.
+out.rgb = col0.rgb;
+out.a = col0.a;
