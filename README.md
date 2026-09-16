@@ -94,11 +94,13 @@ matching SHA-256, and an existing emulator executable (`-EmulatorPath` or
 touches your xemu configuration. It passes `-dvd_path <iso>` (and `-config_path`
 only if you give `-ConfigPath`).
 
-xemu is not part of the shared `C:\dev\helworks\emus` directory and is not
-downloaded by these scripts. xemu additionally needs, in its own `xemu.toml`, an
-MCPX boot ROM and an Xbox-compatible BIOS that you must obtain from hardware you
-own, plus a hard-disk image (xemu offers a blank one). None of these are
-provided or located by this repository.
+xemu 0.8.136 is installed at
+`C:\dev\helworks\emus\xemu-0.8.136-windows-x86_64\xemu.exe`, but these scripts do
+not download or configure it. xemu needs, in its own `xemu.toml`, an MCPX boot
+ROM and an Xbox-compatible BIOS that you must obtain from hardware you own, plus
+a hard-disk image (xemu offers a blank, copyright-free one on first run). The
+firmware is not provided or located by this repository, and the launcher never
+edits your xemu configuration.
 
 ## What the probe shows
 

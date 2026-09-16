@@ -120,7 +120,7 @@ overlay and logged at `renderer-ready`, at frame 3600 and at shutdown.
 | Diagnostic variant builds | pass: `-Pose Far`, `-Pose NearPlane`, `-Pose ScreenEdge`, `-DisableCulling`, `-ReverseTriangleOrder`, `-StopAfterFrames 300` (Cube/Debug) |
 | Negative build checks | invalid `-Probe`, negative `-StopAfterFrames`, nonexistent nxdk checkout, unlocked image tag and existing output directory all fail before Docker with no `build-info.json` |
 | Negative launch checks | no emulator path, nonexistent emulator, missing image, image copied without its build record, and a tampered image (hash mismatch) all refuse to launch with concrete diagnostics |
-| Emulator boot and visual cube | **not verified**: xemu is not installed under `C:\dev\helworks\emus` or the usual install locations, and its MCPX/BIOS firmware cannot be supplied by this repository |
+| Emulator boot and visual cube | **not verified**: xemu 0.8.136 is installed at `C:\dev\helworks\emus\xemu-0.8.136-windows-x86_64\xemu.exe` (exe SHA-256 `7da537938ea2ac09f894186ba793c9ae51dff37c95903b0002273b8d363818b7`), but it has no configuration and no MCPX boot ROM or BIOS image exists on this machine; those must be dumped from hardware you own and cannot be supplied by this repository |
 | 60-second stability, finite-frame shutdown probe | **not verified** (same blocker) |
 | Physical hardware | **pending** |
 
