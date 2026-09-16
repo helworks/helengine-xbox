@@ -232,6 +232,14 @@ void XboxRasterRenderer::PushRenderState() {
     p = pb_push1(p, NV097_SET_ALPHA_TEST_ENABLE, 0);
     p = pb_push1(p, NV097_SET_STENCIL_TEST_ENABLE, 0);
     p = pb_push1(p, NV097_SET_COLOR_MASK, 0x01010101); // write A, R, G, B
+    // pb_init leaves NV097_SET_CONTROL0 at STENCIL_WRITE | Z_PERSPECTIVE |
+    // TEXTURE_PERSPECTIVE. Z_PERSPECTIVE makes the GPU derive depth from w
+    // rather than from the screen-space z this vertex program computes; for
+    // this scene w only spans roughly 3..7, so almost every comparison ties
+    // and LEQUAL admits whichever fragment is drawn last. Clear that bit and
+    // keep the other two, so the depth test uses our [0, 0xFFFFFF] z.
+    p = pb_push1(p, NV097_SET_CONTROL0,
+                 NV097_SET_CONTROL0_STENCIL_WRITE_ENABLE | NV097_SET_CONTROL0_TEXTURE_PERSPECTIVE_ENABLE);
     p = pb_push1(p, NV097_SET_DEPTH_TEST_ENABLE, 1);
     p = pb_push1(p, NV097_SET_DEPTH_MASK, 1);
     // Depth cleared to the maximum (0xFFFFFF) each frame; nearer fragments win.
