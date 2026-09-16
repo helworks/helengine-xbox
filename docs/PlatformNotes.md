@@ -117,7 +117,9 @@ overlay and logged at `renderer-ready`, at frame 3600 and at shutdown.
 | CPU contract tests | pass, 588 checks (`scripts/test-native.ps1`) |
 | Clear / Triangle / Cube Debug builds | pass; XBE magic `XBEH`, XISO lists `/default.xbe` |
 | Cube Release build | pass |
-| Negative checks | invalid `-Probe`, nonexistent nxdk checkout, unlocked image tag and existing output directory all fail before Docker with no `build-info.json` |
+| Diagnostic variant builds | pass: `-Pose Far`, `-Pose NearPlane`, `-Pose ScreenEdge`, `-DisableCulling`, `-ReverseTriangleOrder`, `-StopAfterFrames 300` (Cube/Debug) |
+| Negative build checks | invalid `-Probe`, negative `-StopAfterFrames`, nonexistent nxdk checkout, unlocked image tag and existing output directory all fail before Docker with no `build-info.json` |
+| Negative launch checks | no emulator path, nonexistent emulator, missing image, image copied without its build record, and a tampered image (hash mismatch) all refuse to launch with concrete diagnostics |
 | Emulator boot and visual cube | **not verified**: xemu is not installed under `C:\dev\helworks\emus` or the usual install locations, and its MCPX/BIOS firmware cannot be supplied by this repository |
 | 60-second stability, finite-frame shutdown probe | **not verified** (same blocker) |
 | Physical hardware | **pending** |
