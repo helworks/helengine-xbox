@@ -34,6 +34,7 @@ Paths are relative to the nxdk checkout.
 | Shader compiler | `vp20compiler <file>` reads `!!VP1.0`/`!!VP1.1` text (VP1.1 needed for DPH/RCC/SUB/ABS), prints `0x.., 0x.., 0x.., 0x..,` per instruction plus `//` comments; program `c[N]` becomes hardware constant `N + 96`. One constant register per instruction. `fp20compiler <file>` reads `!!RC1.0` text and prints `pb_push1(p, NV097_SET_COMBINER_...); p += 2;` statements (requires a `p` from `pb_begin`). | `tools/vp20compiler/nvvertparse.c:1382`, `tools/vp20compiler/main.c:517-560`, `tools/fp20compiler/main.cpp`, `tools/fp20compiler/rc1.0_grammar.y` |
 | Constants | `NV097_SET_TRANSFORM_CONSTANT_LOAD = 96 + first`, then `NV097_SET_TRANSFORM_CONSTANT` with 4 floats per register. | `samples/mesh/main.c` |
 | Indexed draw | `SET_BEGIN_END TRIANGLES`; `0x40000000 \| NV097_ARRAY_ELEMENT16` (non-incrementing) with two 16-bit indices per dword (low half first); odd tail via `NV097_ARRAY_ELEMENT32`; `SET_BEGIN_END END`. Blocks kept well under pbkit's 128-dword begin/end limit. | `samples/mesh/main.c` draw_indices, `lib/pbkit/nv_regs.h:505-518`, `lib/pbkit/pbkit_pushbuffer.h` |
+| Depth mode | `pb_init` leaves `NV097_SET_CONTROL0` (0x290) at `STENCIL_WRITE_ENABLE \| Z_PERSPECTIVE_ENABLE \| TEXTURE_PERSPECTIVE_ENABLE` (0x00110001). `Z_PERSPECTIVE_ENABLE` (bit 16) makes the GPU derive depth from `w` instead of the program's screen-space z. The renderer clears that bit each frame and keeps the other two. See "Depth mode is not pbkit's default" below. | `lib/pbkit/pbkit.c:1718`, `lib/pbkit/nv_regs.h:159-167` |
 | Drain / shutdown | `pb_busy()` = DMA get != put or PGRAPH busy. `pb_kill()` jumps the DMA to head, waits (bounded by `TICKSTIMEOUT`), waits for pending swaps, uninstalls the interrupt, frees pbkit's own buffers and restores the video state. Returning from `main` reaches `_PDCLIB_Exit` = `HalReturnToFirmware(HalQuickRebootRoutine)`. | `lib/pbkit/pbkit.c:1557,2037`, `lib/pdclib/platform/xbox/functions/_PDCLIB/_PDCLIB_Exit.c` |
 | Text overlay | `pb_print` / `pb_draw_text_screen` render with `pb_fill` rectangle clears only; they do not touch 3D state. 16 rows x 60 columns. | `lib/pbkit/pbkit_print.c` |
 | Diagnostics | `debugPrint` writes to the HAL debug framebuffer (visible via `pb_show_debug_screen`); `DbgPrint` goes to the kernel debug channel. | `lib/hal/debug.h`, `lib/xboxkrnl/xboxkrnl.h:4386` |
@@ -76,6 +77,21 @@ inside faces; `-DisableCulling` and `-ReverseTriangleOrder` exist for that.
 **Depth**: depth test on, depth write on, `LEQUAL`, depth cleared to
 `0xFFFFFF` (far) every frame by `pb_erase_depth_stencil_buffer`.
 
+**Depth mode is not pbkit's default.** `pb_init` enables
+`NV097_SET_CONTROL0_Z_PERSPECTIVE_ENABLE`, which makes the GPU ignore the
+screen-space z this vertex program computes and derive depth from `w`
+instead. For this scene `w` only spans roughly 3 to 7, so after quantisation
+nearly every depth comparison is a tie, `LEQUAL` admits the tying fragment,
+and the frame degenerates into a painter's algorithm. With back-face culling
+enabled that is invisible, because a convex cube's front faces never overlap
+each other, so the image looks correct for the wrong reason. It was caught by
+the culling-disabled probe: back faces won pixels they should have lost, and
+reversing the triangle order changed which ones won. The renderer therefore
+pushes `NV097_SET_CONTROL0` with `Z_PERSPECTIVE_ENABLE` cleared and
+`STENCIL_WRITE_ENABLE | TEXTURE_PERSPECTIVE_ENABLE` kept. After the fix the
+culling-disabled and reversed-order builds produce identical histograms with
+every back face at 0.000%, so depth and not draw order decides the frame.
+
 **Disabled state per frame**: lighting, specular, fog, blending, alpha test,
 stencil test, all four texture stages. Colour mask writes ARGB.
 
@@ -109,6 +125,27 @@ overlay and logged at `renderer-ready`, at frame 3600 and at shutdown.
 - LLD warns that `.debug_*` section names exceed 8 characters in Debug builds;
   harmless for cxbe.
 
+## How the rendered frame is verified
+
+xemu strips QEMU's `screendump` from both QMP and HMP, so the frame is
+recovered from emulated memory instead of from the host screen:
+
+1. `scripts/capture_emulator_frame.ps1` boots the XISO with `-snapshot` and an
+   isolated `-config_path`, then dumps the emulated console's 64 MiB physical
+   address space through the QEMU monitor (`pmemsave`).
+2. `tools/decode_framebuffer.py` finds pbkit's framebuffer inside that dump,
+   writes it out as a PNG and reports a colour histogram.
+
+Nothing belonging to the host desktop is read or captured; the dump contains
+only the emulated Xbox's own memory. Because the probe's frame is static and
+the three framebuffers are cyclic rotations of one image, the histogram is
+alignment-independent, and the text overlay fixes the true origin.
+
+The cube check is falsifiable rather than impressionistic. For the baseline
+pose exactly three faces turn toward the camera (+Z red, -X yellow, -Y
+magenta) and their opposites must be absent; inverted winding or culling would
+show the opposite set, and broken depth would mix both.
+
 ## Verification state
 
 | Check | Result |
@@ -120,9 +157,26 @@ overlay and logged at `renderer-ready`, at frame 3600 and at shutdown.
 | Diagnostic variant builds | pass: `-Pose Far`, `-Pose NearPlane`, `-Pose ScreenEdge`, `-DisableCulling`, `-ReverseTriangleOrder`, `-StopAfterFrames 300` (Cube/Debug) |
 | Negative build checks | invalid `-Probe`, negative `-StopAfterFrames`, nonexistent nxdk checkout, unlocked image tag and existing output directory all fail before Docker with no `build-info.json` |
 | Negative launch checks | no emulator path, nonexistent emulator, missing image, image copied without its build record, and a tampered image (hash mismatch) all refuse to launch with concrete diagnostics |
-| Emulator boot and visual cube | **not verified**: xemu 0.8.136 is installed at `C:\dev\helworks\emus\xemu-0.8.136-windows-x86_64\xemu.exe` (exe SHA-256 `7da537938ea2ac09f894186ba793c9ae51dff37c95903b0002273b8d363818b7`), but it has no configuration and no MCPX boot ROM or BIOS image exists on this machine; those must be dumped from hardware you own and cannot be supplied by this repository |
-| 60-second stability, finite-frame shutdown probe | **not verified** (same blocker) |
+| Emulator boot | pass: xemu 0.8.136 (exe SHA-256 `7da537938ea2ac09f894186ba793c9ae51dff37c95903b0002273b8d363818b7`) with the MCPX ROM (MD5 `d49c52a4102f6df7bcf8d0617ac475ed`), Complex 4627 BIOS and 8 GB HDD image under `C:\dev\helworks\emus\xbox`, launched with `-snapshot` and an isolated config |
+| Clear probe | pass: frame is exactly the clear colour `0xFF203040` at 98.22% plus the white overlay, frame counter advancing |
+| Triangle probe | pass: one Gouraud triangle, red / green / blue corners matching the vertex data, 1 draw and 1 triangle per frame |
+| Cube probe, baseline | pass: red 9.791%, yellow 3.998%, magenta 1.133%, all three back faces 0.000%, 1 draw and 12 triangles per frame |
+| Perspective | pass: `-Pose Far` (distance 12 versus 5) covers 2.527% against 14.922%, a ratio of 0.169 where the inverse-square prediction is 0.174 |
+| Near-plane clipping | pass: `-Pose NearPlane` fills the view with the clipped red face (98.25%, two colours total), no stray or exploded geometry |
+| Screen-edge clipping | pass: `-Pose ScreenEdge` clips cleanly at the frame edges with no back faces |
+| Back-face culling and winding | pass: `FRONT_FACE = CCW` confirmed on hardware behaviour, not just inferred; the opposite face set never appears |
+| Depth test | pass **after the `Z_PERSPECTIVE_ENABLE` fix**: culling-disabled and culling-disabled-plus-reversed-order builds give identical histograms with all back faces 0.000%. Before the fix these differed and back faces bled through, so depth was not being tested at all |
+| Draw-order independence | pass: `-ReverseTriangleOrder` leaves the baseline histogram unchanged |
+| 60-second stability | pass: 105 s continuous run, frame 3228 with 38736 triangles (exactly 12 per frame), counters steady at `alloc 1 free 0`, emulator alive and `running` at the end |
+| No steady-state allocation | pass: `alloc 1 free 0` across every run, so nothing is allocated inside `Draw` |
+| Finite-frame shutdown | partial: `-StopAfterFrames 300` stops at the requested count (captured at frame 298 with 3576 triangles) and leaves the loop without hanging. The drain and reverse-order release run on that path but their diagnostics are printed to the HAL debug console, which this capture method does not read, so they are not directly observed |
 | Physical hardware | **pending** |
+
+Pose captures for Far, NearPlane and ScreenEdge were taken from builds made
+before the depth fix. The fix cannot affect them: with culling enabled only
+front faces are submitted and a convex cube's front faces never overlap, so no
+depth comparison is ever decisive. This is confirmed directly, since the
+baseline histogram is identical before and after the fix.
 
 ## Known limitations
 
@@ -130,5 +184,8 @@ overlay and logged at `renderer-ready`, at frame 3600 and at shutdown.
 - Rotation is not implemented (static pose by design).
 - Finite-frame runs end with nxdk's quick reboot after a five-second hold on
   the debug console; there is no controller input or menu.
-- The front-face convention above is derived from pinned-source evidence and
-  the emulator's implementation, not yet from a live frame.
+- All rendering results above come from xemu. Real NV2A silicon may differ,
+  particularly around depth-buffer tiling and Z compression, so the depth
+  behaviour should be re-checked on hardware.
+- The capture method cannot read the HAL debug console, so startup and
+  shutdown diagnostics are not part of the recorded evidence.

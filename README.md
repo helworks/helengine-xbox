@@ -119,6 +119,28 @@ With `-StopAfterFrames N` the host presents N frames, drains the GPU, releases
 the renderer allocation, stops pbkit, shows the debug console for five seconds
 and returns; nxdk's runtime then reboots to the dashboard.
 
+## Verify the rendered frame
+
+xemu has no working `screendump`, so the frame is recovered from emulated
+memory rather than from the host screen:
+
+```powershell
+powershell -NoProfile -ExecutionPolicy Bypass -File .\scripts\capture_emulator_frame.ps1 `
+  -ArtifactPath C:\dev\helworks\builds\helengine-xbox\v01\cube-debug-01\artifacts\game.iso `
+  -RunDir C:\dev\helworks\builds\helengine-xbox\v01\capture-01 `
+  -EmulatorPath C:\dev\helworks\emus\xbox\xemu-0.8.136-windows-x86_64\xemu.exe `
+  -ConfigPath C:\dev\helworks\builds\helengine-xbox\v01\xemu-setup\xemu.toml
+
+python tools\decode_framebuffer.py `
+  C:\dev\helworks\builds\helengine-xbox\v01\capture-01\guest-ram.bin `
+  C:\dev\helworks\builds\helengine-xbox\v01\capture-01\frame --expect-cube
+```
+
+The capture boots with `-snapshot`, so the hard-disk image is never modified,
+and reads only the emulated console's own memory. `--expect-cube` asserts that
+the three camera-facing colours are present and their opposites absent, which
+fails loudly if winding, culling or depth regress.
+
 ## Verification status
 
 See `docs/PlatformNotes.md` for the API worksheet, conventions and the current
