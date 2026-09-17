@@ -342,7 +342,8 @@ bool XboxRasterRenderer::Draw(ProbeMode mode) {
         PushIndexedTriangles(cubeDrawOrder_, CubeGeometry::IndexCount);
         return true;
     case ProbeMode::Clear:
-        return true; // nothing to draw; video owns the clear
+    case ProbeMode::AbiChecks:
+        return true; // nothing to draw; video owns the clear and the overlay carries the results
     }
     Diagnostics::Log("renderer error: unsupported probe mode %d", static_cast<int>(mode));
     return false;

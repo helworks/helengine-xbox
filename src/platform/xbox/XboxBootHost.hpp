@@ -8,7 +8,10 @@
 
 namespace helengine::xbox {
 
-enum class ProbeMode { Clear, Triangle, Cube };
+// AbiChecks verifies the MSVC-ABI dynamic_cast support in XboxCxxAbi.cpp on the
+// console itself; the RTTI layout it walks is emitted by the target compiler and
+// cannot be exercised on the development host.
+enum class ProbeMode { Clear, Triangle, Cube, AbiChecks };
 
 struct BootConfig {
     ProbeMode Mode = ProbeMode::Cube;

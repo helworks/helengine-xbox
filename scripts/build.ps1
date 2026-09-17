@@ -5,7 +5,7 @@ param(
     [string]$OutputRoot,
     [ValidateSet('Debug', 'Release')]
     [string]$Configuration = 'Debug',
-    [ValidateSet('Clear', 'Triangle', 'Cube')]
+    [ValidateSet('Clear', 'Triangle', 'Cube', 'AbiChecks')]
     [string]$Probe = 'Cube',
     [ValidateRange(0, 2147483647)]
     [int]$StopAfterFrames = 0,

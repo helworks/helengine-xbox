@@ -42,8 +42,10 @@ else ifeq ($(PROBE),Triangle)
 PROBE_VALUE := 1
 else ifeq ($(PROBE),Cube)
 PROBE_VALUE := 2
+else ifeq ($(PROBE),AbiChecks)
+PROBE_VALUE := 3
 else
-$(error PROBE must be Clear, Triangle or Cube (got '$(PROBE)'))
+$(error PROBE must be Clear, Triangle, Cube or AbiChecks (got '$(PROBE)'))
 endif
 
 ifeq ($(POSE),Baseline)
@@ -88,7 +90,9 @@ SRCS = \
 	$(PLATFORM_DIR)/XboxVideo.cpp \
 	$(PLATFORM_DIR)/XboxCubeMesh.cpp \
 	$(PLATFORM_DIR)/XboxMath.cpp \
-	$(PLATFORM_DIR)/XboxRasterRenderer.cpp
+	$(PLATFORM_DIR)/XboxRasterRenderer.cpp \
+	$(PLATFORM_DIR)/XboxAbiChecks.cpp \
+	$(PLATFORM_DIR)/XboxCxxAbi.cpp
 
 SHADER_OBJS = \
 	$(SHADER_DIR)/unlit_vsh.inl \
