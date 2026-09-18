@@ -1,7 +1,10 @@
 # Repository-local generated products only; canonical build outputs live under
-# C:/dev/helworks/builds/helengine-xbox/v01/<build-id>.
+# C:/dev/helworks/builds/helengine-xbox/.
 /bin/
 /build/
+# .NET intermediates from the editor-facing platform builder.
+builder/bin/
+builder/obj/
 /disc/
 *.obj
 *.exe
