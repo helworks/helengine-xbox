@@ -132,8 +132,15 @@ if ($Mode -eq 'Authored') {
     $GeneratedCoreRoot = [IO.Path]::GetFullPath($GeneratedCoreRoot)
     $ContentRoot = [IO.Path]::GetFullPath($ContentRoot)
     if (-not (Test-Path -LiteralPath $GeneratedCoreRoot -PathType Container)) { throw "Generated Core root does not exist: $GeneratedCoreRoot" }
-    if (-not (Test-Path -LiteralPath (Join-Path $GeneratedCoreRoot 'generated_unity.cpp') -PathType Leaf)) {
-        throw "Generated Core root does not contain generated_unity.cpp: $GeneratedCoreRoot"
+    # Accept either unity translation unit here and let the Makefile choose
+    # between them; it prefers the finalized helengine_core_unity.cpp, which is
+    # the only one carrying project scripts and generated deserializers.
+    $unityCandidates = @('helengine_core_unity.cpp', 'generated_unity.cpp')
+    $foundUnity = @($unityCandidates | Where-Object {
+        Test-Path -LiteralPath (Join-Path $GeneratedCoreRoot $_) -PathType Leaf
+    })
+    if ($foundUnity.Count -eq 0) {
+        throw "Generated Core root contains none of $($unityCandidates -join ', '): $GeneratedCoreRoot"
     }
     if (-not (Test-Path -LiteralPath (Join-Path $GeneratedCoreRoot 'Core.hpp') -PathType Leaf)) {
         throw "Generated Core root does not contain Core.hpp: $GeneratedCoreRoot"

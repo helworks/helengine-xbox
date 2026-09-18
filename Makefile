@@ -20,7 +20,8 @@
 #   REVERSE_TRIANGLES  0 | 1                         (default 0)
 #
 # Authored mode inputs (an editor-built scene):
-#   GENERATED_CORE_ROOT  generated Core C++ root containing generated_unity.cpp
+#   GENERATED_CORE_ROOT  generated Core C++ root containing helengine_core_unity.cpp
+#                        (preferred) or generated_unity.cpp
 #   CONTENT_ROOT         cooked content tree packaged onto the disc
 #   CATALOG_ROOT         optional scene catalog sources compiled alongside Core
 
@@ -104,9 +105,19 @@ endif
 ifndef CONTENT_ROOT
 $(error CONTENT_ROOT is required in Authored mode)
 endif
+# An editor build emits two unity translation units. generated_unity.cpp is
+# codegen's own compile-validation unit and stops at the engine sources it knew
+# about when it ran. helengine_core_unity.cpp is written afterwards, during the
+# finalize stage, and is the only one that also includes the project scripts,
+# the generated component deserializers and the runtime/ and system/ subtrees.
+# Compiling the validation unit links short by exactly those definitions, so
+# prefer the finalized unit and fall back only when codegen ran standalone.
+ifneq ($(wildcard $(GENERATED_CORE_ROOT)/helengine_core_unity.cpp),)
+GENERATED_CORE_UNITY := $(GENERATED_CORE_ROOT)/helengine_core_unity.cpp
+else ifneq ($(wildcard $(GENERATED_CORE_ROOT)/generated_unity.cpp),)
 GENERATED_CORE_UNITY := $(GENERATED_CORE_ROOT)/generated_unity.cpp
-ifeq ($(wildcard $(GENERATED_CORE_UNITY)),)
-$(error GENERATED_CORE_ROOT does not contain generated_unity.cpp: $(GENERATED_CORE_ROOT))
+else
+$(error GENERATED_CORE_ROOT contains neither helengine_core_unity.cpp nor generated_unity.cpp: $(GENERATED_CORE_ROOT))
 endif
 ifeq ($(wildcard $(GENERATED_CORE_ROOT)/Core.hpp),)
 $(error GENERATED_CORE_ROOT does not contain Core.hpp: $(GENERATED_CORE_ROOT))

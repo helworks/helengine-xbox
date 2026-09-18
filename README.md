@@ -85,7 +85,7 @@ powershell -NoProfile -ExecutionPolicy Bypass -File .\scripts\build.ps1 `
 
 | Parameter | Meaning |
 | --- | --- |
-| `-GeneratedCoreRoot` | Generated Core C++ root; must contain `generated_unity.cpp` and `Core.hpp` |
+| `-GeneratedCoreRoot` | Generated Core C++ root; must contain `Core.hpp` and a unity translation unit. The finalized `helengine_core_unity.cpp` is preferred and `generated_unity.cpp` accepted as a fallback; only the finalized one carries project scripts and generated component deserializers. |
 | `-ContentRoot` | Cooked content tree copied onto the disc beside `default.xbe`; must not be empty |
 | `-CatalogRoot` | Optional scene catalog sources compiled alongside Core |
 
