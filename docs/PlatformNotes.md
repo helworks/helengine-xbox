@@ -187,6 +187,28 @@ still runs the native probe, so an authored image renders the same diagnostic
 cube. Linking Core and packaging content is the prerequisite for the runtime
 host, not a behaviour change on its own.
 
+That sameness is itself the test worth running. Adding roughly 900 KB of code
+and static data to the image could break XBE loading, fault in Core's static
+initializers before `main`, or starve pbkit's contiguous allocations inside the
+64 MiB the console has. None of that happens. The authored image boots under
+xemu and renders a frame whose colour histogram is identical to the diagnostic
+build's, to three decimal places:
+
+| Face | Diagnostic | Authored |
+| --- | --- | --- |
+| red +Z | 9.791% | 9.791% |
+| yellow -X | 3.998% | 3.998% |
+| magenta -Y | 1.133% | 1.133% |
+| green -Z, blue +X, cyan +Y | 0.000% | 0.000% |
+| clear | 82.47% | 82.47% |
+
+At the 44-second capture the overlay read frame 2652 with 31,824 triangles,
+exactly twelve per frame, and counters steady at `alloc 1 free 0`, a frame rate
+comparable to the diagnostic runs. pbkit's framebuffers moved to a different
+address as the larger executable shifted the memory layout, and allocation still
+succeeded. So linking Core costs the renderer nothing measurable and perturbs
+neither startup nor steady state.
+
 ## Verification state
 
 | Check | Result |
