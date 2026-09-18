@@ -9,6 +9,8 @@
 #include <cmath>
 #include <cstdio>
 
+#include <string>
+#include "platform/xbox/XboxContentPath.hpp"
 #include "platform/xbox/XboxCubeMesh.hpp"
 #include "platform/xbox/XboxMath.hpp"
 
@@ -221,10 +223,64 @@ bool TestDefaultPoseIsInFrontOfCamera() {
     return true;
 }
 
+bool TestContentPathResolution() {
+    using helengine::xbox::ResolveDiscContentPath;
+    using helengine::xbox::ValidateRelativeContentPath;
+
+    // The exact shape the generated scene catalog manifest emits.
+    std::string resolved;
+    const char* reason = "unset";
+    CHECK(ResolveDiscContentPath("D:\\", "cooked/scenes/rendering/cube_test.hasset", resolved, reason));
+    CHECK(reason == nullptr);
+    CHECK(resolved == "D:\\cooked\\scenes\\rendering\\cube_test.hasset");
+
+    // A root without a trailing separator must not fuse into the first segment.
+    CHECK(ResolveDiscContentPath("D:", "cooked/a.hasset", resolved, reason));
+    CHECK(resolved == "D:\\cooked\\a.hasset");
+
+    // Already-backslashed input is accepted and left alone.
+    CHECK(ResolveDiscContentPath("D:\\", "cooked\\a.hasset", resolved, reason));
+    CHECK(resolved == "D:\\cooked\\a.hasset");
+
+    // Single segment, the degenerate case of the segment walk.
+    CHECK(ResolveDiscContentPath("D:\\", "a.hasset", resolved, reason));
+    CHECK(resolved == "D:\\a.hasset");
+
+    // Every rejection names a reason and leaves the output untouched.
+    const char* const rejected[] = {
+        "",                              // empty
+        "/cooked/a.hasset",              // rooted, posix
+        "\\cooked\\a.hasset",            // rooted, xbox
+        "E:\\elsewhere.hasset",          // names a drive
+        "cooked/../../secrets",          // dot segment
+        "cooked/./a.hasset",             // dot segment
+        "cooked//a.hasset",              // empty segment
+        "cooked/a.hasset/",              // trailing separator
+    };
+    for (unsigned i = 0; i < sizeof(rejected) / sizeof(rejected[0]); ++i) {
+        const std::string previous = resolved;
+        reason = nullptr;
+        CHECK(!ResolveDiscContentPath("D:\\", rejected[i], resolved, reason));
+        CHECK(reason != nullptr);
+        CHECK(resolved == previous);
+    }
+
+    // An embedded NUL has to be built as a std::string to survive the call.
+    CHECK(ValidateRelativeContentPath(std::string("cooked/a\0b.hasset", 17)) != nullptr);
+
+    // An empty content root is a caller error, not a path error.
+    CHECK(!ResolveDiscContentPath("", "cooked/a.hasset", resolved, reason));
+    CHECK(reason != nullptr);
+    CHECK(!ResolveDiscContentPath(nullptr, "cooked/a.hasset", resolved, reason));
+    CHECK(reason != nullptr);
+    return true;
+}
+
 } // namespace
 
 int main() {
-    const bool ok = TestCubeGeometry() && TestMath() && TestDefaultPoseIsInFrontOfCamera();
+    const bool ok = TestCubeGeometry() && TestMath() && TestDefaultPoseIsInFrontOfCamera() &&
+                    TestContentPathResolution();
     if (!ok) {
         std::fprintf(stderr, "native contract tests FAILED after %d checks\n", g_checks);
         return 1;

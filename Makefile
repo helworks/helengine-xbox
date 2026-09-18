@@ -152,9 +152,14 @@ SRCS = \
 	$(PLATFORM_DIR)/XboxAbiChecks.cpp \
 	$(PLATFORM_DIR)/XboxCxxAbi.cpp
 
+SRCS += $(PLATFORM_DIR)/XboxContentPath.cpp
+
 ifeq ($(MODE),Authored)
-# Only meaningful when a Core is linked: it implements the runtime's fatal hook.
-SRCS += $(PLATFORM_DIR)/XboxCoreRuntimeProvider.cpp
+# Only meaningful when a Core is linked: the fatal hook the generated runtime
+# calls, and the content source it reads cooked assets through.
+SRCS += \
+	$(PLATFORM_DIR)/XboxCoreRuntimeProvider.cpp \
+	$(PLATFORM_DIR)/XboxContentStreamSource.cpp
 endif
 
 SHADER_OBJS = \
@@ -189,9 +194,16 @@ ifeq ($(MODE),Authored)
 # the compiler's command line intact, and a quoted include would need escaping
 # at every one of those layers. src is already on the include path.
 HELENGINE_CORE_PROVIDER_HEADER := <platform/xbox/XboxCoreRuntimeProvider.hpp>
+#
+# The generated tree comes in through -isystem, not -I. It is not written to
+# this repository's warning bar - native_exceptions.hpp alone trips
+# -Wunused-parameter three times - and the alternative, dropping -Werror for
+# every platform source that touches a Core header, would give up the bar on
+# this repository's own code to accommodate generated code. -isystem suppresses
+# diagnostics from those headers and leaves quoted includes resolving as before.
 HELENGINE_CXXFLAGS += -DHELENGINE_XBOX_HAS_GENERATED_CORE=1 \
 	-DHE_CPP_RUNTIME_PROVIDER_HEADER='$(HELENGINE_CORE_PROVIDER_HEADER)' \
-	-I$(GENERATED_CORE_ROOT) -I$(GENERATED_CORE_ROOT)/runtime
+	-isystem $(GENERATED_CORE_ROOT) -isystem $(GENERATED_CORE_ROOT)/runtime
 ifdef CATALOG_ROOT
 HELENGINE_CXXFLAGS += -I$(CATALOG_ROOT)
 endif
