@@ -161,7 +161,9 @@ ifeq ($(MODE),Authored)
 # calls, and the content source it reads cooked assets through.
 SRCS += \
 	$(PLATFORM_DIR)/XboxCoreRuntimeProvider.cpp \
-	$(PLATFORM_DIR)/XboxContentStreamSource.cpp
+	$(PLATFORM_DIR)/XboxContentStreamSource.cpp \
+	$(PLATFORM_DIR)/XboxRuntimeModel.cpp \
+	$(PLATFORM_DIR)/XboxRuntimeMaterial.cpp
 endif
 
 SHADER_OBJS = \
