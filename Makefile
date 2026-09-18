@@ -152,6 +152,11 @@ SRCS = \
 	$(PLATFORM_DIR)/XboxAbiChecks.cpp \
 	$(PLATFORM_DIR)/XboxCxxAbi.cpp
 
+ifeq ($(MODE),Authored)
+# Only meaningful when a Core is linked: it implements the runtime's fatal hook.
+SRCS += $(PLATFORM_DIR)/XboxCoreRuntimeProvider.cpp
+endif
+
 SHADER_OBJS = \
 	$(SHADER_DIR)/unlit_vsh.inl \
 	$(SHADER_DIR)/unlit_psh.inl
@@ -168,7 +173,24 @@ HELENGINE_CXXFLAGS := \
 ifeq ($(MODE),Authored)
 # Tell the platform sources a generated Core is present so the host can drive it
 # instead of the native probe geometry.
+#
+# HE_CPP_RUNTIME_PROVIDER_HEADER routes the generated runtime's fatal path to
+# he_cpp_custom::Fail in XboxCoreRuntimeProvider.cpp. Without it a Core
+# generated with codegen-use-exceptions=false lowers every managed throw to
+# std::abort(), which kills the console and discards the reason. With std
+# string, vector, unordered_map, unordered_set and chrono all enabled the
+# provider contract narrows to Fail alone, so no HeCpp* alias leaves its
+# standard type.
+#
+# The define has to reach the generated Core and the platform sources alike:
+# both include native_runtime.hpp, and disagreeing about the provider would put
+# two different definitions of the runtime's inline failure path in one binary.
+# Angle-bracket form on purpose: the value has to survive make, the shell and
+# the compiler's command line intact, and a quoted include would need escaping
+# at every one of those layers. src is already on the include path.
+HELENGINE_CORE_PROVIDER_HEADER := <platform/xbox/XboxCoreRuntimeProvider.hpp>
 HELENGINE_CXXFLAGS += -DHELENGINE_XBOX_HAS_GENERATED_CORE=1 \
+	-DHE_CPP_RUNTIME_PROVIDER_HEADER='$(HELENGINE_CORE_PROVIDER_HEADER)' \
 	-I$(GENERATED_CORE_ROOT) -I$(GENERATED_CORE_ROOT)/runtime
 ifdef CATALOG_ROOT
 HELENGINE_CXXFLAGS += -I$(CATALOG_ROOT)
@@ -197,6 +219,7 @@ ifeq ($(MODE),Authored)
 #               generated with codegen-use-exceptions=false
 GENERATED_CORE_OBJECT := $(CURDIR)/generated_core_unity.obj
 GENERATED_CORE_CXXFLAGS := -std=c++20 -w $(HELENGINE_OPTFLAGS) \
+	-DHE_CPP_RUNTIME_PROVIDER_HEADER='$(HELENGINE_CORE_PROVIDER_HEADER)' \
 	-I$(GENERATED_CORE_ROOT) -I$(GENERATED_CORE_ROOT)/runtime -I$(CURDIR)/src
 
 $(GENERATED_CORE_OBJECT): $(GENERATED_CORE_UNITY)
