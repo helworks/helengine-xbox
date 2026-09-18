@@ -28,6 +28,21 @@ public:
     // and XboxVideo::EndFrame. Performs no allocation.
     bool Draw(ProbeMode mode);
 
+    // Pushes the shared unlit render state once per authored frame. The
+    // authored path draws a variable number of meshes, so state is separated
+    // from submission rather than pushed per draw as the probe does.
+    bool BeginAuthoredFrame();
+
+    // Submits one authored mesh with its own clip matrix and GPU-visible
+    // vertex array. The array must be the same interleaved layout the probe
+    // uses and must stay resident until the GPU has consumed the frame.
+    // Performs no allocation. Must follow BeginAuthoredFrame.
+    bool DrawAuthored(const Matrix4& clip,
+                      const CubeVertex* gpuVertices,
+                      unsigned vertexCount,
+                      const unsigned short* indices,
+                      unsigned indexCount);
+
     // Releases GPU-visible storage. Call only after the GPU has been drained.
     void Shutdown();
 
@@ -38,7 +53,7 @@ private:
     bool BuildTransforms(unsigned width, unsigned height);
     void PushRenderState();
     void PushConstants(const Matrix4& clip);
-    void PushVertexAttributes(unsigned firstVertex);
+    void PushVertexAttributes(const CubeVertex* base);
     void PushIndexedTriangles(const unsigned short* indices, unsigned indexCount);
 
     bool initialized_ = false;

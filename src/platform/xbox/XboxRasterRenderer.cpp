@@ -269,8 +269,8 @@ void XboxRasterRenderer::PushConstants(const Matrix4& clip) {
     pb_end(p);
 }
 
-void XboxRasterRenderer::PushVertexAttributes(unsigned firstVertex) {
-    const uintptr_t base = reinterpret_cast<uintptr_t>(gpuVertices_ + firstVertex);
+void XboxRasterRenderer::PushVertexAttributes(const CubeVertex* vertices) {
+    const uintptr_t base = reinterpret_cast<uintptr_t>(vertices);
     const uint32_t positionAddress = static_cast<uint32_t>(base + offsetof(CubeVertex, Position)) & kGpuAddressMask;
     const uint32_t colorAddress = static_cast<uint32_t>(base + offsetof(CubeVertex, Color)) & kGpuAddressMask;
     const uint32_t stride = static_cast<uint32_t>(sizeof(CubeVertex));
@@ -333,12 +333,12 @@ bool XboxRasterRenderer::Draw(ProbeMode mode) {
     switch (mode) {
     case ProbeMode::Triangle:
         PushConstants(triangleClip_);
-        PushVertexAttributes(triangleFirstVertex_);
+        PushVertexAttributes(gpuVertices_ + triangleFirstVertex_);
         PushIndexedTriangles(triangleIndices_, 3);
         return true;
     case ProbeMode::Cube:
         PushConstants(cubeClip_);
-        PushVertexAttributes(cubeFirstVertex_);
+        PushVertexAttributes(gpuVertices_ + cubeFirstVertex_);
         PushIndexedTriangles(cubeDrawOrder_, CubeGeometry::IndexCount);
         return true;
     case ProbeMode::Clear:
@@ -347,6 +347,39 @@ bool XboxRasterRenderer::Draw(ProbeMode mode) {
     }
     Diagnostics::Log("renderer error: unsupported probe mode %d", static_cast<int>(mode));
     return false;
+}
+
+bool XboxRasterRenderer::BeginAuthoredFrame() {
+    if (!initialized_) {
+        Diagnostics::Log("renderer error: BeginAuthoredFrame before Initialize");
+        return false;
+    }
+    // The probe pushes state and geometry together because it draws exactly
+    // one mesh. An authored frame draws a variable number, and the state is
+    // identical for all of them, so it is pushed once here instead.
+    PushRenderState();
+    return true;
+}
+
+bool XboxRasterRenderer::DrawAuthored(const Matrix4& clip,
+                                      const CubeVertex* gpuVertices,
+                                      unsigned vertexCount,
+                                      const unsigned short* indices,
+                                      unsigned indexCount) {
+    if (!initialized_) {
+        Diagnostics::Log("renderer error: DrawAuthored before Initialize");
+        return false;
+    }
+    if (gpuVertices == nullptr || indices == nullptr || vertexCount == 0 || indexCount == 0 ||
+        (indexCount % 3) != 0) {
+        Diagnostics::Log("renderer error: authored mesh is malformed (%u verts, %u indices)",
+                         vertexCount, indexCount);
+        return false;
+    }
+    PushConstants(clip);
+    PushVertexAttributes(gpuVertices);
+    PushIndexedTriangles(indices, indexCount);
+    return true;
 }
 
 void XboxRasterRenderer::Shutdown() {
