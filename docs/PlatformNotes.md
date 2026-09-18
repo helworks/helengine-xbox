@@ -150,9 +150,16 @@ show the opposite set, and broken depth would mix both.
 
 `MODE=Authored` joins the two halves of this repository: the native platform
 sources and an editor-generated Core. It requires `GENERATED_CORE_ROOT` and
-`CONTENT_ROOT`, and optionally `CATALOG_ROOT`, all validated before anything
-compiles so a missing root fails immediately rather than producing an image
-that silently carries no scene.
+`CONTENT_ROOT`, both validated before anything compiles so a missing root fails
+immediately rather than producing an image that silently carries no scene.
+
+There is no catalog input. Codegen emits `runtime/runtime_scene_catalog_manifest.cpp`
+and `runtime/runtime_startup_manifest.cpp` into the generated tree, carrying the
+authored scene ids, their cooked paths and the platform identity. Neither unity
+translation unit includes them, so they are compiled alongside the Core and
+their absence is a named Makefile error. helengine-dc supplies the same data
+through a builder-generated C ABI, which predates these manifests; this
+platform does not need one.
 
 The generated Core is compiled as a single unity translation unit rather than
 added to `SRCS`, because nxdk writes each object beside its source and the

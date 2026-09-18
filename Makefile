@@ -23,7 +23,6 @@
 #   GENERATED_CORE_ROOT  generated Core C++ root containing helengine_core_unity.cpp
 #                        (preferred) or generated_unity.cpp
 #   CONTENT_ROOT         cooked content tree packaged onto the disc
-#   CATALOG_ROOT         optional scene catalog sources compiled alongside Core
 
 ifndef NXDK_DIR
 $(error NXDK_DIR is required; point it at the pinned nxdk checkout)
@@ -140,12 +139,6 @@ CONTENT_FILE_COUNT := $(shell find '$(CONTENT_ROOT)' -type f 2>/dev/null | head 
 ifeq ($(CONTENT_FILE_COUNT),)
 $(error CONTENT_ROOT contains no files: $(CONTENT_ROOT))
 endif
-ifdef CATALOG_ROOT
-ifeq ($(wildcard $(CATALOG_ROOT)),)
-$(error CATALOG_ROOT does not exist: $(CATALOG_ROOT))
-endif
-CATALOG_SOURCES := $(wildcard $(CATALOG_ROOT)/*.cpp)
-endif
 endif
 
 PLATFORM_DIR := $(CURDIR)/src/platform/xbox
@@ -221,9 +214,6 @@ HELENGINE_CORE_PROVIDER_HEADER := <platform/xbox/XboxCoreRuntimeProvider.hpp>
 HELENGINE_CXXFLAGS += -DHELENGINE_XBOX_HAS_GENERATED_CORE=1 \
 	-DHE_CPP_RUNTIME_PROVIDER_HEADER='$(HELENGINE_CORE_PROVIDER_HEADER)' \
 	-isystem $(GENERATED_CORE_ROOT) -isystem $(GENERATED_CORE_ROOT)/runtime
-ifdef CATALOG_ROOT
-HELENGINE_CXXFLAGS += -I$(CATALOG_ROOT)
-endif
 endif
 
 # `override` so command-line CXXFLAGS/LDFLAGS cannot silently drop these.
@@ -272,14 +262,6 @@ $(CURDIR)/generated_%.obj: $(GENERATED_CORE_ROOT)/runtime/%.cpp
 
 AUTHORED_OBJECTS += $(GENERATED_MANIFEST_OBJECTS)
 
-ifdef CATALOG_ROOT
-CATALOG_OBJECTS := $(patsubst $(CATALOG_ROOT)/%.cpp,$(CURDIR)/catalog_%.obj,$(CATALOG_SOURCES))
-$(CURDIR)/catalog_%.obj: $(CATALOG_ROOT)/%.cpp
-	@echo "[ CXX CAT  ] $@"
-	$(VE)$(CXX) $(NXDK_CXXFLAGS) $(GENERATED_CORE_CXXFLAGS) -c -o '$@' '$<'
-AUTHORED_OBJECTS += $(CATALOG_OBJECTS)
-endif
-
 # nxdk links main.exe from all of its prerequisites, so naming the authored
 # objects here adds them to the link without redefining its recipe.
 main.exe: $(AUTHORED_OBJECTS)
@@ -316,4 +298,4 @@ $(SHADER_DIR)/unlit_psh.inl: $(SHADER_DIR)/unlit.psh $(FP20COMPILER)
 print-config:
 	@echo "MODE=$(MODE) CONFIGURATION=$(CONFIGURATION) PROBE=$(PROBE) ($(PROBE_VALUE)) STOP_AFTER_FRAMES=$(STOP_AFTER_FRAMES) POSE=$(POSE) ($(POSE_VALUE)) DISABLE_CULLING=$(DISABLE_CULLING) REVERSE_TRIANGLES=$(REVERSE_TRIANGLES)"
 	@echo "NXDK_DIR=$(NXDK_DIR) OUTPUT_DIR=$(OUTPUT_DIR) GEN_XISO=$(GEN_XISO)"
-	@echo "GENERATED_CORE_ROOT=$(GENERATED_CORE_ROOT) CONTENT_ROOT=$(CONTENT_ROOT) CATALOG_ROOT=$(CATALOG_ROOT)"
+	@echo "GENERATED_CORE_ROOT=$(GENERATED_CORE_ROOT) CONTENT_ROOT=$(CONTENT_ROOT)"

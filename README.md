@@ -1,11 +1,18 @@
 # Helengine Original Xbox Handler
 
-Native Original Xbox host for Helengine. Version 0.1 is a standalone native
-graphics bootstrap: it initializes video through the pinned nxdk/pbkit stack and
-continuously renders a static, unlit, indexed cube with perspective, depth
-testing/writing and back-face culling. No generated Core, engine runtime,
-authored scenes, cooked assets, editor discovery or platform-builder integration
-is involved yet; the cube geometry and camera are native diagnostic constants.
+Native Original Xbox host for Helengine.
+
+A **Diagnostic** build is the v0.1 bootstrap: it initializes video through the
+pinned nxdk/pbkit stack and renders a static, unlit, indexed cube with
+perspective, depth testing/writing and back-face culling from native constants.
+No Core, content or editor involvement.
+
+An **Authored** build links an editor-generated Core, packages the cooked
+content tree onto the disc, and runs the authored startup scene: it reads cooked
+models and materials off the DVD, drives Core's update/draw lifecycle, and
+submits the scene's own cameras and drawables through the same NV2A path. It is
+unlit, opaque and untextured; lighting, textures, 2D and controller input are
+not implemented.
 
 ## Prerequisites
 
@@ -80,14 +87,17 @@ powershell -NoProfile -ExecutionPolicy Bypass -File .\scripts\build.ps1 `
   -Configuration Release -Mode Authored `
   -GeneratedCoreRoot <generated core root> `
   -ContentRoot <cooked content tree> `
-  [-CatalogRoot <scene catalog sources>]
 ```
 
 | Parameter | Meaning |
 | --- | --- |
 | `-GeneratedCoreRoot` | Generated Core C++ root; must contain `Core.hpp` and a unity translation unit. The finalized `helengine_core_unity.cpp` is preferred and `generated_unity.cpp` accepted as a fallback; only the finalized one carries project scripts and generated component deserializers. |
+
+The scene catalog and startup scene are not inputs: they come from
+`runtime/runtime_scene_catalog_manifest.cpp` and
+`runtime/runtime_startup_manifest.cpp`, which codegen emits into the generated
+tree and which are compiled alongside the Core.
 | `-ContentRoot` | Cooked content tree copied onto the disc beside `default.xbe`; must not be empty |
-| `-CatalogRoot` | Optional scene catalog sources compiled alongside Core |
 
 Both roots are mounted read-only into the container, so a build cannot modify
 what it was handed. The generated Core compiles as one unity translation unit at

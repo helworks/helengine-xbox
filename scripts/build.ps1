@@ -12,7 +12,6 @@ param(
     # Authored mode inputs. Both roots are mounted read-only into the container.
     [string]$GeneratedCoreRoot,
     [string]$ContentRoot,
-    [string]$CatalogRoot,
     [ValidateSet('Clear', 'Triangle', 'Cube', 'AbiChecks')]
     [string]$Probe = 'Cube',
     [ValidateRange(0, 2147483647)]
@@ -149,10 +148,6 @@ if ($Mode -eq 'Authored') {
     if (@(Get-ChildItem -LiteralPath $ContentRoot -Recurse -File -ErrorAction SilentlyContinue | Select-Object -First 1).Count -eq 0) {
         throw "Content root contains no files: $ContentRoot"
     }
-    if (-not [string]::IsNullOrWhiteSpace($CatalogRoot)) {
-        $CatalogRoot = [IO.Path]::GetFullPath($CatalogRoot)
-        if (-not (Test-Path -LiteralPath $CatalogRoot -PathType Container)) { throw "Catalog root does not exist: $CatalogRoot" }
-    }
     # The probe selectors describe the native diagnostic scene, which an authored
     # build does not draw. Accepting them silently would imply they had an effect.
     $suppliedSelectors = @($diagnosticSelectors | Where-Object { $PSBoundParameters.ContainsKey($_) })
@@ -161,7 +156,7 @@ if ($Mode -eq 'Authored') {
     }
 }
 else {
-    foreach ($authoredOnly in @('GeneratedCoreRoot', 'ContentRoot', 'CatalogRoot')) {
+    foreach ($authoredOnly in @('GeneratedCoreRoot', 'ContentRoot')) {
         if ($PSBoundParameters.ContainsKey($authoredOnly)) {
             throw "-$authoredOnly requires -Mode Authored."
         }
@@ -245,7 +240,6 @@ $makeArguments = @(
 if ($Mode -eq 'Authored') {
     $makeArguments += 'GENERATED_CORE_ROOT=/generated'
     $makeArguments += 'CONTENT_ROOT=/content'
-    if (-not [string]::IsNullOrWhiteSpace($CatalogRoot)) { $makeArguments += 'CATALOG_ROOT=/catalog' }
 }
 $innerCommand = 'set -e; ' +
     'recorded="$(cat ' + $nxdkDir + '/HELENGINE_NXDK_COMMIT)"; ' +
@@ -263,9 +257,6 @@ if ($Mode -eq 'Authored') {
     # build must not be able to edit what it was handed.
     $dockerArgs += @('--mount', "type=bind,source=$GeneratedCoreRoot,target=/generated,readonly")
     $dockerArgs += @('--mount', "type=bind,source=$ContentRoot,target=/content,readonly")
-    if (-not [string]::IsNullOrWhiteSpace($CatalogRoot)) {
-        $dockerArgs += @('--mount', "type=bind,source=$CatalogRoot,target=/catalog,readonly")
-    }
 }
 $dockerArgs += @(
     '--entrypoint', '/bin/sh',
@@ -373,7 +364,6 @@ $buildInfo = [ordered]@{
     authored = [ordered]@{
         generatedCoreRoot = $GeneratedCoreRoot
         contentRoot = $ContentRoot
-        catalogRoot = $CatalogRoot
     }
     configuration = $Configuration
     probe = $Probe
