@@ -69,6 +69,40 @@ logs/                      environment.txt, docker-build.log, xiso-listing.txt, 
 identity, configuration, probe, pose, UTC start/end, artifact paths and SHA-256
 hashes.
 
+## Authored builds
+
+`-Mode Authored` links an editor-generated Core and packages a cooked content
+tree onto the disc, instead of building the native probe:
+
+```powershell
+powershell -NoProfile -ExecutionPolicy Bypass -File .\scripts\build.ps1 `
+  -OutputRoot C:\dev\helworks\builds\helengine-xbox\v02\authored-01 `
+  -Configuration Release -Mode Authored `
+  -GeneratedCoreRoot <generated core root> `
+  -ContentRoot <cooked content tree> `
+  [-CatalogRoot <scene catalog sources>]
+```
+
+| Parameter | Meaning |
+| --- | --- |
+| `-GeneratedCoreRoot` | Generated Core C++ root; must contain `generated_unity.cpp` and `Core.hpp` |
+| `-ContentRoot` | Cooked content tree copied onto the disc beside `default.xbe`; must not be empty |
+| `-CatalogRoot` | Optional scene catalog sources compiled alongside Core |
+
+Both roots are mounted read-only into the container, so a build cannot modify
+what it was handed. The generated Core compiles as one unity translation unit at
+C++20 with warnings off, RTTI on and exceptions off, matching a Core generated
+with `codegen-use-exceptions=false`; `__RTDynamicCast` comes from
+`src/platform/xbox/XboxCxxAbi.cpp`.
+
+Authored builds reject the diagnostic probe selectors (`-Probe`, `-Pose`,
+`-StopAfterFrames`, `-DisableCulling`, `-ReverseTriangleOrder`) rather than
+accepting them with no effect, and `-Mode Diagnostic` rejects the authored roots
+for the same reason.
+
+The editor drives this through `builder/`, which the engine discovers via
+`user_settings/platforms.json`.
+
 ## Test (CPU geometry and math)
 
 ```powershell

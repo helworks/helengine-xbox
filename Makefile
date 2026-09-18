@@ -7,17 +7,30 @@
 #
 # Inputs (validated before any compilation):
 #   NXDK_DIR           pinned nxdk checkout with built tools/libraries
-#   CONFIGURATION      Debug | Release              (default Debug)
-#   PROBE              Clear | Triangle | Cube      (default Cube)
+#   MODE               Diagnostic | Authored         (default Diagnostic)
+#   CONFIGURATION      Debug | Release               (default Debug)
+#   OUTPUT_DIR         disc root (default ./disc)
+#   GEN_XISO           XISO path (default ./game.iso)
+#
+# Diagnostic mode inputs (the native probe; no engine content involved):
+#   PROBE              Clear | Triangle | Cube | AbiChecks  (default Cube)
 #   STOP_AFTER_FRAMES  nonnegative integer           (default 0 = continuous)
 #   POSE               Baseline | Far | NearPlane | ScreenEdge (default Baseline)
 #   DISABLE_CULLING    0 | 1                         (default 0)
 #   REVERSE_TRIANGLES  0 | 1                         (default 0)
-#   OUTPUT_DIR         disc root; contains only default.xbe (default ./disc)
-#   GEN_XISO           XISO path (default ./game.iso)
+#
+# Authored mode inputs (an editor-built scene):
+#   GENERATED_CORE_ROOT  generated Core C++ root containing generated_unity.cpp
+#   CONTENT_ROOT         cooked content tree packaged onto the disc
+#   CATALOG_ROOT         optional scene catalog sources compiled alongside Core
 
 ifndef NXDK_DIR
 $(error NXDK_DIR is required; point it at the pinned nxdk checkout)
+endif
+
+MODE ?= Diagnostic
+ifeq ($(filter Diagnostic Authored,$(MODE)),)
+$(error MODE must be Diagnostic or Authored (got '$(MODE)'))
 endif
 
 CONFIGURATION ?= Debug
@@ -81,6 +94,40 @@ OUTPUT_DIR ?= $(CURDIR)/disc
 GEN_XISO ?= $(CURDIR)/game.iso
 NXDK_CXX = y
 
+# --- Authored mode inputs -----------------------------------------------------
+# Validated here so a missing or mistyped root fails before anything compiles,
+# rather than producing an image that silently carries no scene.
+ifeq ($(MODE),Authored)
+ifndef GENERATED_CORE_ROOT
+$(error GENERATED_CORE_ROOT is required in Authored mode)
+endif
+ifndef CONTENT_ROOT
+$(error CONTENT_ROOT is required in Authored mode)
+endif
+GENERATED_CORE_UNITY := $(GENERATED_CORE_ROOT)/generated_unity.cpp
+ifeq ($(wildcard $(GENERATED_CORE_UNITY)),)
+$(error GENERATED_CORE_ROOT does not contain generated_unity.cpp: $(GENERATED_CORE_ROOT))
+endif
+ifeq ($(wildcard $(GENERATED_CORE_ROOT)/Core.hpp),)
+$(error GENERATED_CORE_ROOT does not contain Core.hpp: $(GENERATED_CORE_ROOT))
+endif
+ifeq ($(wildcard $(CONTENT_ROOT)),)
+$(error CONTENT_ROOT does not exist: $(CONTENT_ROOT))
+endif
+# The cooked tree must not be empty: an empty content root means the editor
+# staged nothing and the image would boot with no scene to load.
+CONTENT_FILE_COUNT := $(shell find '$(CONTENT_ROOT)' -type f 2>/dev/null | head -1)
+ifeq ($(CONTENT_FILE_COUNT),)
+$(error CONTENT_ROOT contains no files: $(CONTENT_ROOT))
+endif
+ifdef CATALOG_ROOT
+ifeq ($(wildcard $(CATALOG_ROOT)),)
+$(error CATALOG_ROOT does not exist: $(CATALOG_ROOT))
+endif
+CATALOG_SOURCES := $(wildcard $(CATALOG_ROOT)/*.cpp)
+endif
+endif
+
 PLATFORM_DIR := $(CURDIR)/src/platform/xbox
 SHADER_DIR := $(PLATFORM_DIR)/shaders
 
@@ -107,11 +154,72 @@ HELENGINE_CXXFLAGS := \
 	-DHELENGINE_XBOX_DISABLE_CULLING=$(DISABLE_CULLING) \
 	-DHELENGINE_XBOX_REVERSE_TRIANGLES=$(REVERSE_TRIANGLES)
 
+ifeq ($(MODE),Authored)
+# Tell the platform sources a generated Core is present so the host can drive it
+# instead of the native probe geometry.
+HELENGINE_CXXFLAGS += -DHELENGINE_XBOX_HAS_GENERATED_CORE=1 \
+	-I$(GENERATED_CORE_ROOT) -I$(GENERATED_CORE_ROOT)/runtime
+ifdef CATALOG_ROOT
+HELENGINE_CXXFLAGS += -I$(CATALOG_ROOT)
+endif
+endif
+
 # `override` so command-line CXXFLAGS/LDFLAGS cannot silently drop these.
 override CXXFLAGS += $(HELENGINE_CXXFLAGS)
 override LDFLAGS += -map:$(CURDIR)/main.map
 
 include $(NXDK_DIR)/Makefile
+
+ifeq ($(MODE),Authored)
+# The generated Core is one large unity translation unit. It is compiled here
+# rather than added to SRCS because nxdk writes each object beside its source,
+# and the generated root is mounted read-only; objects therefore land in the
+# invocation directory instead.
+#
+# Its flags deliberately differ from the platform sources:
+#   -std=c++20  generated code uses C++20 library facilities
+#   -w          generated code is not written to this repository's warning bar,
+#               and -Werror would fail the build on cosmetic diagnostics
+#   RTTI on     generic implementation dispatch selects concrete generated types
+#               through dynamic_cast; __RTDynamicCast comes from XboxCxxAbi.cpp
+#   exceptions  left at nxdk's -fno-exceptions default, matching a Core
+#               generated with codegen-use-exceptions=false
+GENERATED_CORE_OBJECT := $(CURDIR)/generated_core_unity.obj
+GENERATED_CORE_CXXFLAGS := -std=c++20 -w $(HELENGINE_OPTFLAGS) \
+	-I$(GENERATED_CORE_ROOT) -I$(GENERATED_CORE_ROOT)/runtime -I$(CURDIR)/src
+
+$(GENERATED_CORE_OBJECT): $(GENERATED_CORE_UNITY)
+	@echo "[ CXX CORE ] $@"
+	$(VE)$(CXX) $(NXDK_CXXFLAGS) $(GENERATED_CORE_CXXFLAGS) -c -o '$@' '$<'
+
+AUTHORED_OBJECTS := $(GENERATED_CORE_OBJECT)
+
+ifdef CATALOG_ROOT
+CATALOG_OBJECTS := $(patsubst $(CATALOG_ROOT)/%.cpp,$(CURDIR)/catalog_%.obj,$(CATALOG_SOURCES))
+$(CURDIR)/catalog_%.obj: $(CATALOG_ROOT)/%.cpp
+	@echo "[ CXX CAT  ] $@"
+	$(VE)$(CXX) $(NXDK_CXXFLAGS) $(GENERATED_CORE_CXXFLAGS) -c -o '$@' '$<'
+AUTHORED_OBJECTS += $(CATALOG_OBJECTS)
+endif
+
+# nxdk links main.exe from all of its prerequisites, so naming the authored
+# objects here adds them to the link without redefining its recipe.
+main.exe: $(AUTHORED_OBJECTS)
+
+# Copy the cooked tree next to default.xbe so extract-xiso packs it into the
+# image. This is a prerequisite of the XISO rule nxdk already defines.
+.PHONY: stage-authored-content
+stage-authored-content: | $(OUTPUT_DIR)
+	@echo "[ CONTENT  ] $(CONTENT_ROOT) -> $(OUTPUT_DIR)"
+	$(VE)cp -R '$(CONTENT_ROOT)/.' '$(OUTPUT_DIR)/'
+
+$(GEN_XISO): stage-authored-content
+
+CLEANRULES += clean-authored
+.PHONY: clean-authored
+clean-authored:
+	$(VE)rm -f $(AUTHORED_OBJECTS)
+endif
 
 # Hand-written shader sources compiled with the pinned nxdk tools only (no cgc):
 #   unlit.vsh  NV_vertex_program 1.1 text  -> vp20compiler -> NV2A microcode dwords
@@ -128,5 +236,6 @@ $(SHADER_DIR)/unlit_psh.inl: $(SHADER_DIR)/unlit.psh $(FP20COMPILER)
 
 .PHONY: print-config
 print-config:
-	@echo "CONFIGURATION=$(CONFIGURATION) PROBE=$(PROBE) ($(PROBE_VALUE)) STOP_AFTER_FRAMES=$(STOP_AFTER_FRAMES) POSE=$(POSE) ($(POSE_VALUE)) DISABLE_CULLING=$(DISABLE_CULLING) REVERSE_TRIANGLES=$(REVERSE_TRIANGLES)"
+	@echo "MODE=$(MODE) CONFIGURATION=$(CONFIGURATION) PROBE=$(PROBE) ($(PROBE_VALUE)) STOP_AFTER_FRAMES=$(STOP_AFTER_FRAMES) POSE=$(POSE) ($(POSE_VALUE)) DISABLE_CULLING=$(DISABLE_CULLING) REVERSE_TRIANGLES=$(REVERSE_TRIANGLES)"
 	@echo "NXDK_DIR=$(NXDK_DIR) OUTPUT_DIR=$(OUTPUT_DIR) GEN_XISO=$(GEN_XISO)"
+	@echo "GENERATED_CORE_ROOT=$(GENERATED_CORE_ROOT) CONTENT_ROOT=$(CONTENT_ROOT) CATALOG_ROOT=$(CATALOG_ROOT)"

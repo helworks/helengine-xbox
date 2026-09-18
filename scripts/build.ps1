@@ -5,6 +5,14 @@ param(
     [string]$OutputRoot,
     [ValidateSet('Debug', 'Release')]
     [string]$Configuration = 'Debug',
+    # Diagnostic builds the native probe from constants in this repository.
+    # Authored links an editor-generated Core and packages cooked content.
+    [ValidateSet('Diagnostic', 'Authored')]
+    [string]$Mode = 'Diagnostic',
+    # Authored mode inputs. Both roots are mounted read-only into the container.
+    [string]$GeneratedCoreRoot,
+    [string]$ContentRoot,
+    [string]$CatalogRoot,
     [ValidateSet('Clear', 'Triangle', 'Cube', 'AbiChecks')]
     [string]$Probe = 'Cube',
     [ValidateRange(0, 2147483647)]
@@ -116,6 +124,43 @@ if (Test-Path -LiteralPath $OutputRoot) { throw "Refusing to reuse existing invo
 if (-not (Test-Path -LiteralPath $lockPath -PathType Leaf)) { throw "Toolchain lock is missing: $lockPath (run scripts/prepare_toolchain.ps1)" }
 if (-not (Test-Path -LiteralPath $NxdkPath -PathType Container)) { throw "nxdk checkout does not exist: $NxdkPath" }
 
+# --- Mode validation ---------------------------------------------------------
+$diagnosticSelectors = @('Probe', 'StopAfterFrames', 'Pose', 'DisableCulling', 'ReverseTriangleOrder')
+if ($Mode -eq 'Authored') {
+    if ([string]::IsNullOrWhiteSpace($GeneratedCoreRoot)) { throw 'Authored mode requires -GeneratedCoreRoot.' }
+    if ([string]::IsNullOrWhiteSpace($ContentRoot)) { throw 'Authored mode requires -ContentRoot.' }
+    $GeneratedCoreRoot = [IO.Path]::GetFullPath($GeneratedCoreRoot)
+    $ContentRoot = [IO.Path]::GetFullPath($ContentRoot)
+    if (-not (Test-Path -LiteralPath $GeneratedCoreRoot -PathType Container)) { throw "Generated Core root does not exist: $GeneratedCoreRoot" }
+    if (-not (Test-Path -LiteralPath (Join-Path $GeneratedCoreRoot 'generated_unity.cpp') -PathType Leaf)) {
+        throw "Generated Core root does not contain generated_unity.cpp: $GeneratedCoreRoot"
+    }
+    if (-not (Test-Path -LiteralPath (Join-Path $GeneratedCoreRoot 'Core.hpp') -PathType Leaf)) {
+        throw "Generated Core root does not contain Core.hpp: $GeneratedCoreRoot"
+    }
+    if (-not (Test-Path -LiteralPath $ContentRoot -PathType Container)) { throw "Content root does not exist: $ContentRoot" }
+    if (@(Get-ChildItem -LiteralPath $ContentRoot -Recurse -File -ErrorAction SilentlyContinue | Select-Object -First 1).Count -eq 0) {
+        throw "Content root contains no files: $ContentRoot"
+    }
+    if (-not [string]::IsNullOrWhiteSpace($CatalogRoot)) {
+        $CatalogRoot = [IO.Path]::GetFullPath($CatalogRoot)
+        if (-not (Test-Path -LiteralPath $CatalogRoot -PathType Container)) { throw "Catalog root does not exist: $CatalogRoot" }
+    }
+    # The probe selectors describe the native diagnostic scene, which an authored
+    # build does not draw. Accepting them silently would imply they had an effect.
+    $suppliedSelectors = @($diagnosticSelectors | Where-Object { $PSBoundParameters.ContainsKey($_) })
+    if ($suppliedSelectors.Count -gt 0) {
+        throw "Diagnostic selectors cannot be used in Authored mode: $($suppliedSelectors -join ', ')"
+    }
+}
+else {
+    foreach ($authoredOnly in @('GeneratedCoreRoot', 'ContentRoot', 'CatalogRoot')) {
+        if ($PSBoundParameters.ContainsKey($authoredOnly)) {
+            throw "-$authoredOnly requires -Mode Authored."
+        }
+    }
+}
+
 $lock = Read-KeyValueFile $lockPath
 foreach ($key in @('LocalImageTag', 'LocalImageId', 'NxdkCommit', 'NxdkDirInImage')) {
     if (-not $lock.ContainsKey($key) -or [string]::IsNullOrWhiteSpace($lock[$key])) { throw "Toolchain lock lacks $key" }
@@ -177,6 +222,7 @@ $disableCullingValue = if ($DisableCulling) { '1' } else { '0' }
 $reverseValue = if ($ReverseTriangleOrder) { '1' } else { '0' }
 $makeArguments = @(
     "NXDK_DIR=$nxdkDir",
+    "MODE=$Mode",
     "CONFIGURATION=$Configuration",
     "PROBE=$Probe",
     "STOP_AFTER_FRAMES=$StopAfterFrames",
@@ -187,6 +233,11 @@ $makeArguments = @(
     'GEN_XISO=/work/game.iso',
     'V=1'
 )
+if ($Mode -eq 'Authored') {
+    $makeArguments += 'GENERATED_CORE_ROOT=/generated'
+    $makeArguments += 'CONTENT_ROOT=/content'
+    if (-not [string]::IsNullOrWhiteSpace($CatalogRoot)) { $makeArguments += 'CATALOG_ROOT=/catalog' }
+}
 $innerCommand = 'set -e; ' +
     'recorded="$(cat ' + $nxdkDir + '/HELENGINE_NXDK_COMMIT)"; ' +
     'test "$recorded" = "' + $expectedNxdkCommit + '" || { echo "image nxdk commit $recorded != ' + $expectedNxdkCommit + '" >&2; exit 90; }; ' +
@@ -196,7 +247,18 @@ $innerCommand = 'set -e; ' +
     'ls -l /work/disc /work/game.iso'
 $dockerArgs = @(
     'run', '--rm', '--workdir', '/work',
-    '--mount', "type=bind,source=$workRoot,target=/work",
+    '--mount', "type=bind,source=$workRoot,target=/work"
+)
+if ($Mode -eq 'Authored') {
+    # Read-only: the generated Core and cooked content are build inputs, and the
+    # build must not be able to edit what it was handed.
+    $dockerArgs += @('--mount', "type=bind,source=$GeneratedCoreRoot,target=/generated,readonly")
+    $dockerArgs += @('--mount', "type=bind,source=$ContentRoot,target=/content,readonly")
+    if (-not [string]::IsNullOrWhiteSpace($CatalogRoot)) {
+        $dockerArgs += @('--mount', "type=bind,source=$CatalogRoot,target=/catalog,readonly")
+    }
+}
+$dockerArgs += @(
     '--entrypoint', '/bin/sh',
     $DockerImage,
     '-c', $innerCommand
@@ -226,8 +288,20 @@ if ($read -ne 4 -or $magic[0] -ne 0x58 -or $magic[1] -ne 0x42 -or $magic[2] -ne 
     throw ("default.xbe does not start with XBEH (got {0:X2} {1:X2} {2:X2} {3:X2})" -f $magic[0], $magic[1], $magic[2], $magic[3])
 }
 $discEntries = @(Get-ChildItem -LiteralPath (Join-Path $workRoot 'disc') -Force)
-if ($discEntries.Count -ne 1 -or $discEntries[0].Name -ne 'default.xbe') {
-    throw "Disc staging root must contain exactly default.xbe; found: $(($discEntries | ForEach-Object { $_.Name }) -join ', ')"
+if ($Mode -eq 'Diagnostic') {
+    if ($discEntries.Count -ne 1 -or $discEntries[0].Name -ne 'default.xbe') {
+        throw "Diagnostic disc staging root must contain exactly default.xbe; found: $(($discEntries | ForEach-Object { $_.Name }) -join ', ')"
+    }
+}
+else {
+    if (-not ($discEntries | Where-Object { $_.Name -eq 'default.xbe' })) {
+        throw "Authored disc staging root is missing default.xbe; found: $(($discEntries | ForEach-Object { $_.Name }) -join ', ')"
+    }
+    # An authored image whose only entry is the executable means the cooked tree
+    # never reached the disc, which would boot to a runtime that cannot find its scene.
+    if ($discEntries.Count -lt 2) {
+        throw "Authored disc staging root carries no content beside default.xbe; the cooked tree was not staged."
+    }
 }
 
 $listLog = Join-Path $logRoot 'xiso-listing.txt'
@@ -285,6 +359,12 @@ $buildInfo = [ordered]@{
         upstreamBaseImage = $lock['UpstreamBaseImage']
         compiler = $lock['CompilerC']
         linker = $lock['Linker']
+    }
+    mode = $Mode
+    authored = [ordered]@{
+        generatedCoreRoot = $GeneratedCoreRoot
+        contentRoot = $ContentRoot
+        catalogRoot = $CatalogRoot
     }
     configuration = $Configuration
     probe = $Probe

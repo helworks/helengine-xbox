@@ -146,6 +146,47 @@ pose exactly three faces turn toward the camera (+Z red, -X yellow, -Y
 magenta) and their opposites must be absent; inverted winding or culling would
 show the opposite set, and broken depth would mix both.
 
+## Authored mode
+
+`MODE=Authored` joins the two halves of this repository: the native platform
+sources and an editor-generated Core. It requires `GENERATED_CORE_ROOT` and
+`CONTENT_ROOT`, and optionally `CATALOG_ROOT`, all validated before anything
+compiles so a missing root fails immediately rather than producing an image
+that silently carries no scene.
+
+The generated Core is compiled as a single unity translation unit rather than
+added to `SRCS`, because nxdk writes each object beside its source and the
+generated root is mounted read-only; its object lands in the invocation
+directory instead. Its flags deliberately differ from the platform sources:
+C++20 because generated code uses C++20 library facilities, warnings off
+because generated code is not written to this repository's `-Werror` bar, RTTI
+on for generic implementation dispatch, and exceptions left at nxdk's
+`-fno-exceptions` default to match a Core generated with
+`codegen-use-exceptions=false`.
+
+The cooked tree is copied next to `default.xbe` before `extract-xiso` runs, so
+it is packed into the image and reachable from `D:\` at runtime. The build
+fails if the staged disc root carries nothing but the executable, since that
+means the cooked tree never arrived.
+
+Measured on the first authored build, against the Core generated for the
+`xbox-headless` profile with exceptions disabled:
+
+| Artifact | Diagnostic (Release) | Authored (Release) |
+| --- | --- | --- |
+| `default.xbe` | 118,784 bytes | 892,928 bytes |
+| `main.map` | 97,165 bytes | 1,697,491 bytes |
+
+The map carries 9,706 symbols from the generated Core unity object, including
+`SceneManager`, `ContentManager`, `RenderManager3D`, `Entity` and
+`PackagedAssetBinarySerializer`, and the XISO listing shows the staged content
+beside the executable.
+
+**What an authored build does not yet do:** nothing calls into Core. The host
+still runs the native probe, so an authored image renders the same diagnostic
+cube. Linking Core and packaging content is the prerequisite for the runtime
+host, not a behaviour change on its own.
+
 ## Verification state
 
 | Check | Result |
