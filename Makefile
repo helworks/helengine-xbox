@@ -122,6 +122,15 @@ endif
 ifeq ($(wildcard $(GENERATED_CORE_ROOT)/Core.hpp),)
 $(error GENERATED_CORE_ROOT does not contain Core.hpp: $(GENERATED_CORE_ROOT))
 endif
+# The runtime host reads the startup scene and the catalog from these, so a
+# generated tree without them cannot boot a scene. Checked here rather than
+# left to a link error naming four mangled symbols.
+ifeq ($(wildcard $(GENERATED_CORE_ROOT)/runtime/runtime_scene_catalog_manifest.cpp),)
+$(error GENERATED_CORE_ROOT does not contain runtime/runtime_scene_catalog_manifest.cpp: $(GENERATED_CORE_ROOT))
+endif
+ifeq ($(wildcard $(GENERATED_CORE_ROOT)/runtime/runtime_startup_manifest.cpp),)
+$(error GENERATED_CORE_ROOT does not contain runtime/runtime_startup_manifest.cpp: $(GENERATED_CORE_ROOT))
+endif
 ifeq ($(wildcard $(CONTENT_ROOT)),)
 $(error CONTENT_ROOT does not exist: $(CONTENT_ROOT))
 endif
@@ -165,7 +174,9 @@ SRCS += \
 	$(PLATFORM_DIR)/XboxRuntimeModel.cpp \
 	$(PLATFORM_DIR)/XboxRuntimeMaterial.cpp \
 	$(PLATFORM_DIR)/XboxRenderManager3D.cpp \
-	$(PLATFORM_DIR)/XboxRenderManager2D.cpp
+	$(PLATFORM_DIR)/XboxRenderManager2D.cpp \
+	$(PLATFORM_DIR)/XboxInputBackend.cpp \
+	$(PLATFORM_DIR)/XboxRuntimeHost.cpp
 endif
 
 SHADER_OBJS = \
@@ -245,6 +256,21 @@ $(GENERATED_CORE_OBJECT): $(GENERATED_CORE_UNITY)
 	$(VE)$(CXX) $(NXDK_CXXFLAGS) $(GENERATED_CORE_CXXFLAGS) -c -o '$@' '$<'
 
 AUTHORED_OBJECTS := $(GENERATED_CORE_OBJECT)
+
+# Codegen emits the scene catalog and startup manifests into the generated tree
+# but neither unity translation unit includes them, so they have to be compiled
+# on their own or the runtime host's lookups go undefined at link time. They
+# carry the authored scene ids, their cooked paths and the platform identity,
+# which is what makes a builder-side catalog ABI - the route helengine-dc takes
+# - unnecessary here. Same flags as the Core: they include its runtime headers.
+GENERATED_MANIFEST_NAMES := runtime_scene_catalog_manifest runtime_startup_manifest
+GENERATED_MANIFEST_OBJECTS := $(patsubst %,$(CURDIR)/generated_%.obj,$(GENERATED_MANIFEST_NAMES))
+
+$(CURDIR)/generated_%.obj: $(GENERATED_CORE_ROOT)/runtime/%.cpp
+	@echo "[ CXX MAN  ] $@"
+	$(VE)$(CXX) $(NXDK_CXXFLAGS) $(GENERATED_CORE_CXXFLAGS) -c -o '$@' '$<'
+
+AUTHORED_OBJECTS += $(GENERATED_MANIFEST_OBJECTS)
 
 ifdef CATALOG_ROOT
 CATALOG_OBJECTS := $(patsubst $(CATALOG_ROOT)/%.cpp,$(CURDIR)/catalog_%.obj,$(CATALOG_SOURCES))
