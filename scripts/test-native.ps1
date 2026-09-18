@@ -41,7 +41,7 @@ $inner = 'set -e; ' +
     'g++ --version | head -n1; ' +
     'g++ -std=c++17 -Wall -Wextra -Werror -UNDEBUG -I/src/src ' +
     '/src/tests/native_contract_tests.cpp /src/src/platform/xbox/XboxCubeMesh.cpp /src/src/platform/xbox/XboxMath.cpp ' +
-    '/src/src/platform/xbox/XboxContentPath.cpp ' +
+    '/src/src/platform/xbox/XboxContentPath.cpp /src/src/platform/xbox/XboxAuthoredTransform.cpp ' +
     '-o /out/native_contract_tests; ' +
     '/out/native_contract_tests'
 $dockerArgs = @(

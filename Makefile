@@ -152,7 +152,9 @@ SRCS = \
 	$(PLATFORM_DIR)/XboxAbiChecks.cpp \
 	$(PLATFORM_DIR)/XboxCxxAbi.cpp
 
-SRCS += $(PLATFORM_DIR)/XboxContentPath.cpp
+SRCS += \
+	$(PLATFORM_DIR)/XboxContentPath.cpp \
+	$(PLATFORM_DIR)/XboxAuthoredTransform.cpp
 
 ifeq ($(MODE),Authored)
 # Only meaningful when a Core is linked: the fatal hook the generated runtime

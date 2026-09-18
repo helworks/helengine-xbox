@@ -10,6 +10,7 @@
 #include <cstdio>
 
 #include <string>
+#include "platform/xbox/XboxAuthoredTransform.hpp"
 #include "platform/xbox/XboxContentPath.hpp"
 #include "platform/xbox/XboxCubeMesh.hpp"
 #include "platform/xbox/XboxMath.hpp"
@@ -276,11 +277,103 @@ bool TestContentPathResolution() {
     return true;
 }
 
+bool TestGeneratedMatrixConversion() {
+    using helengine::xbox::GeneratedMatrixFields;
+    using helengine::xbox::MatrixFromGenerated;
+
+    // A generated row-vector matrix carries translation in M41..M43. After
+    // conversion it must sit in the last column, where column-vector
+    // multiplication expects it. Getting this backwards still renders, just
+    // from the wrong place, so pin the exact element.
+    GeneratedMatrixFields generated{};
+    generated.M11 = 1.0f; generated.M22 = 1.0f; generated.M33 = 1.0f; generated.M44 = 1.0f;
+    generated.M41 = 2.0f; generated.M42 = 3.0f; generated.M43 = 4.0f;
+
+    const Matrix4 converted = MatrixFromGenerated(generated);
+    CHECK(converted.Values[3] == 2.0f);
+    CHECK(converted.Values[7] == 3.0f);
+    CHECK(converted.Values[11] == 4.0f);
+    CHECK(converted.Values[12] == 0.0f && converted.Values[15] == 1.0f);
+
+    // And the converted matrix must actually translate a point.
+    const Vector4 moved = Transform(converted, Vector4{1.0f, 1.0f, 1.0f, 1.0f});
+    CHECK(moved.X == 3.0f && moved.Y == 4.0f && moved.Z == 5.0f && moved.W == 1.0f);
+
+    // Off-diagonal terms must transpose, not copy.
+    GeneratedMatrixFields rotation{};
+    rotation.M11 = 0.0f; rotation.M12 = 1.0f; rotation.M13 = 0.0f;
+    rotation.M21 = -1.0f; rotation.M22 = 0.0f; rotation.M23 = 0.0f;
+    rotation.M31 = 0.0f; rotation.M32 = 0.0f; rotation.M33 = 1.0f;
+    rotation.M44 = 1.0f;
+    const Matrix4 convertedRotation = MatrixFromGenerated(rotation);
+    CHECK(convertedRotation.Values[1] == -1.0f);
+    CHECK(convertedRotation.Values[4] == 1.0f);
+    return true;
+}
+
+bool TestCameraTransformValidation() {
+    using helengine::xbox::TryViewFromCameraWorld;
+    using helengine::xbox::ValidateModelTransform;
+    using helengine::xbox::ValidateRigidCameraTransform;
+
+    // Identity is rigid, and its view matrix is identity.
+    Matrix4 view{};
+    CHECK(ValidateRigidCameraTransform(Identity()));
+    CHECK(TryViewFromCameraWorld(Identity(), view));
+    CHECK(NearMatrix(view, Identity()));
+
+    // A camera five units back must view-transform the origin to -5 on Z.
+    const Matrix4 backedOff = Translation(0.0f, 0.0f, 5.0f);
+    CHECK(ValidateRigidCameraTransform(backedOff));
+    CHECK(TryViewFromCameraWorld(backedOff, view));
+    const Vector4 seen = Transform(view, Vector4{0.0f, 0.0f, 0.0f, 1.0f});
+    CHECK(std::fabs(seen.Z + 5.0f) < 1e-5f);
+
+    // A rotated-and-translated camera must invert exactly: applying the view to
+    // the camera's own world position must land on the origin.
+    const Matrix4 posed = Multiply(Translation(1.0f, 2.0f, 3.0f), RotationY(0.7f));
+    CHECK(ValidateRigidCameraTransform(posed));
+    CHECK(TryViewFromCameraWorld(posed, view));
+    const Vector4 atCamera = Transform(view, Vector4{1.0f, 2.0f, 3.0f, 1.0f});
+    CHECK(std::fabs(atCamera.X) < 1e-4f && std::fabs(atCamera.Y) < 1e-4f && std::fabs(atCamera.Z) < 1e-4f);
+
+    // Scale is not rigid, and must be refused rather than mis-inverted.
+    Matrix4 scaled = Identity();
+    scaled.Values[0] = 2.0f;
+    CHECK(!ValidateRigidCameraTransform(scaled));
+    const Matrix4 before = view;
+    CHECK(!TryViewFromCameraWorld(scaled, view));
+    CHECK(NearMatrix(view, before));
+
+    // A mirrored basis would invert back-face culling silently.
+    Matrix4 mirrored = Identity();
+    mirrored.Values[0] = -1.0f;
+    CHECK(!ValidateRigidCameraTransform(mirrored));
+
+    // Nonfinite and projective transforms are refused on both paths.
+    Matrix4 nonfinite = Identity();
+    nonfinite.Values[5] = NAN;
+    CHECK(!ValidateRigidCameraTransform(nonfinite));
+    CHECK(!ValidateModelTransform(nonfinite));
+    Matrix4 projective = Identity();
+    projective.Values[12] = 0.5f;
+    CHECK(!ValidateRigidCameraTransform(projective));
+    CHECK(!ValidateModelTransform(projective));
+
+    // Model transforms accept scale but not a collapsed basis.
+    CHECK(ValidateModelTransform(scaled));
+    Matrix4 flattened = Identity();
+    flattened.Values[10] = 0.0f;
+    CHECK(!ValidateModelTransform(flattened));
+    return true;
+}
+
 } // namespace
 
 int main() {
     const bool ok = TestCubeGeometry() && TestMath() && TestDefaultPoseIsInFrontOfCamera() &&
-                    TestContentPathResolution();
+                    TestContentPathResolution() && TestGeneratedMatrixConversion() &&
+                    TestCameraTransformValidation();
     if (!ok) {
         std::fprintf(stderr, "native contract tests FAILED after %d checks\n", g_checks);
         return 1;
