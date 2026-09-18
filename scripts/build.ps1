@@ -182,7 +182,9 @@ New-Item -ItemType Directory -Path $workRoot, $artifactRoot, $logRoot | Out-Null
 
 $gitCommit = ((Invoke-CheckedNative 'git' @('-c', "safe.directory=$repoRoot", '-C', $repoRoot, 'rev-parse', 'HEAD')) -join '').Trim()
 $gitStatus = @(Invoke-CheckedNative 'git' @('-c', "safe.directory=$repoRoot", '-C', $repoRoot, 'status', '--porcelain', '--untracked-files=all'))
-$gitDirty = ($gitStatus | Where-Object { -not [string]::IsNullOrWhiteSpace($_) }).Count -gt 0
+# @() so a clean working tree, where the pipeline yields nothing, does not throw
+# under Set-StrictMode when .Count is read off a null result.
+$gitDirty = @($gitStatus | Where-Object { -not [string]::IsNullOrWhiteSpace($_) }).Count -gt 0
 $environmentLines = @(
     "BuildStartUtc=$($buildStartUtc.ToString('o'))",
     "SourceRoot=$repoRoot",
