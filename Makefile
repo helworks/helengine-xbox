@@ -164,8 +164,10 @@ ifeq ($(MODE),Authored)
 SRCS += \
 	$(PLATFORM_DIR)/XboxCoreRuntimeProvider.cpp \
 	$(PLATFORM_DIR)/XboxContentStreamSource.cpp \
+	$(PLATFORM_DIR)/XboxCookedAsset.cpp \
 	$(PLATFORM_DIR)/XboxRuntimeModel.cpp \
 	$(PLATFORM_DIR)/XboxRuntimeMaterial.cpp \
+	$(PLATFORM_DIR)/XboxRuntimeTexture.cpp \
 	$(PLATFORM_DIR)/XboxRenderManager3D.cpp \
 	$(PLATFORM_DIR)/XboxRenderManager2D.cpp \
 	$(PLATFORM_DIR)/XboxInputBackend.cpp \

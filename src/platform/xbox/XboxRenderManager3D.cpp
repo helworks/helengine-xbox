@@ -3,6 +3,7 @@
 #if defined(HELENGINE_XBOX_HAS_GENERATED_CORE)
 
 #include "XboxAuthoredTransform.hpp"
+#include "XboxCookedAsset.hpp"
 #include "XboxDiagnostics.hpp"
 #include "XboxRasterRenderer.hpp"
 #include "XboxRuntimeMaterial.hpp"
@@ -10,13 +11,10 @@
 
 #include <cmath>
 
-#include "Asset.hpp"
-#include "AssetSerializer.hpp"
 #include "CameraClearSettings.hpp"
 #include "Core.hpp"
 #include "Entity.hpp"
 #include "ICamera.hpp"
-#include "IContentStreamSource.hpp"
 #include "IDrawable3D.hpp"
 #include "ModelAsset.hpp"
 #include "ObjectManager.hpp"
@@ -24,94 +22,9 @@
 #include "float4.hpp"
 #include "float4x4.hpp"
 #include "runtime/array.hpp"
-#include "system/io/stream.hpp"
 
 namespace helengine::xbox {
 namespace {
-
-// The generated Asset base has no Dispose and no owned storage of its own
-// beyond the former-id array, so releasing it is split from releasing whatever
-// the concrete asset holds.
-void ReleaseAssetStorage(::Asset* asset) {
-    if (asset == nullptr) {
-        return;
-    }
-    // Asset keeps a shared empty array for the common case; deleting that
-    // would take the shared instance out from under every other asset, so only
-    // an owned array is released here.
-    if (asset->FormerAuthoringAssetIds != nullptr &&
-        asset->FormerAuthoringAssetIds != ::Array<std::string>::Empty()) {
-        delete asset->FormerAuthoringAssetIds;
-    }
-    asset->FormerAuthoringAssetIds = nullptr;
-    delete asset; // Asset has a virtual destructor
-}
-
-// ModelAsset owns its position, normal and index arrays and releases them
-// through a non-virtual Dispose; PlatformMaterialAsset holds only value fields.
-void DestroyAsset(::ModelAsset* asset) {
-    if (asset == nullptr) {
-        return;
-    }
-    asset->Dispose();
-    ReleaseAssetStorage(asset);
-}
-
-void DestroyAsset(::PlatformMaterialAsset* asset) {
-    ReleaseAssetStorage(asset);
-}
-
-// Used on the type-mismatch path, where only the base type is known. The
-// concrete type is recovered so an asset holding arrays still releases them.
-void DestroyUnknownAsset(::Asset* asset) {
-    if (::ModelAsset* model = dynamic_cast<::ModelAsset*>(asset)) {
-        DestroyAsset(model);
-        return;
-    }
-    ReleaseAssetStorage(asset);
-}
-
-void CloseStream(::Stream* stream) {
-    if (stream == nullptr) {
-        return;
-    }
-    stream->Close();
-    stream->Dispose();
-    delete stream;
-}
-
-// Reads one cooked asset and narrows it to the expected generated type. The
-// dynamic_cast is why this platform needs RTTI and its own __RTDynamicCast.
-// Returns null and sets reason; never throws.
-template <typename TAsset>
-TAsset* DeserializeAsset(const std::string& path,
-                         ::IContentStreamSource* source,
-                         const char*& reason) {
-    reason = nullptr;
-    if (source == nullptr) {
-        reason = "content stream source is null";
-        return nullptr;
-    }
-    ::Stream* stream = source->OpenRead(path);
-    if (stream == nullptr) {
-        // The source has already logged the concrete file and failure.
-        reason = "content stream source returned no stream";
-        return nullptr;
-    }
-    ::Asset* asset = ::AssetSerializer::Deserialize(stream);
-    CloseStream(stream);
-    if (asset == nullptr) {
-        reason = "cooked asset failed to deserialize";
-        return nullptr;
-    }
-    TAsset* typed = dynamic_cast<TAsset*>(asset);
-    if (typed == nullptr) {
-        DestroyUnknownAsset(asset);
-        reason = "cooked asset has an unexpected generated type";
-        return nullptr;
-    }
-    return typed;
-}
 
 // Reads an entity's world transform into this platform's convention.
 bool TryEntityWorldMatrix(::Entity* entity, Matrix4& output) {
@@ -281,7 +194,7 @@ void XboxRenderManager3D::Draw() {
     std::string cookedAssetPath, ::IContentStreamSource* contentStreamSource) {
     const char* reason = nullptr;
     ::PlatformMaterialAsset* asset =
-        DeserializeAsset<::PlatformMaterialAsset>(cookedAssetPath, contentStreamSource, reason);
+        ReadCookedAssetAs<::PlatformMaterialAsset>(cookedAssetPath, contentStreamSource, reason);
     if (asset == nullptr) {
         Diagnostics::Log("material: %s (%s)", reason, cookedAssetPath.c_str());
         return nullptr;
@@ -294,7 +207,7 @@ void XboxRenderManager3D::Draw() {
 ::RuntimeModel* XboxRenderManager3D::BuildModelFromCooked(
     std::string cookedAssetPath, ::IContentStreamSource* contentStreamSource) {
     const char* reason = nullptr;
-    ::ModelAsset* asset = DeserializeAsset<::ModelAsset>(cookedAssetPath, contentStreamSource, reason);
+    ::ModelAsset* asset = ReadCookedAssetAs<::ModelAsset>(cookedAssetPath, contentStreamSource, reason);
     if (asset == nullptr) {
         Diagnostics::Log("model: %s (%s)", reason, cookedAssetPath.c_str());
         return nullptr;

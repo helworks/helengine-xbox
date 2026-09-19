@@ -5,11 +5,17 @@
 // Generated 2D render manager adapter.
 //
 // Core::Initialize requires a 2D manager, and RenderManager2D has five pure
-// virtuals, so one has to exist even though this milestone draws no 2D. The
-// authored cube_test scene holds no 2D drawables, so none of the draw entries
-// is reached; each records that it was called rather than doing nothing
-// quietly, so a scene that does contain 2D content reports why nothing
-// appeared instead of looking like a renderer fault.
+// virtuals, so one has to exist even though this milestone draws no 2D.
+//
+// Cooked texture construction is implemented, and has to be: the authored
+// cube_test scene carries sprites, and the scene loader resolves every
+// sprite's texture during loading. Refusing there fails the load outright and
+// the 3D cube never appears, even though the cube needs no texture. The
+// textures carry an extent and no pixels.
+//
+// The draw entries are reached only by a scene with 2D content. Each records
+// that it was called rather than doing nothing quietly, so such a scene
+// reports why nothing appeared instead of looking like a renderer fault.
 //
 // Nothing here throws.
 
@@ -40,10 +46,14 @@ public:
     unsigned UnsupportedCalls() const { return unsupportedCalls_; }
     const char* LastUnsupported() const { return lastUnsupported_; }
 
+    // Cooked textures decoded for scene loading. They carry an extent only.
+    unsigned TexturesLoaded() const { return texturesLoaded_; }
+
 private:
     void RecordUnsupported(const char* what);
 
     unsigned unsupportedCalls_ = 0;
+    unsigned texturesLoaded_ = 0;
     const char* lastUnsupported_ = "";
     const char* reportedUnsupported_ = nullptr;
     bool disposed_ = false;

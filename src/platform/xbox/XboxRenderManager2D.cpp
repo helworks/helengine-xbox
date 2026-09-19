@@ -2,7 +2,11 @@
 
 #if defined(HELENGINE_XBOX_HAS_GENERATED_CORE)
 
+#include "XboxCookedAsset.hpp"
 #include "XboxDiagnostics.hpp"
+#include "XboxRuntimeTexture.hpp"
+
+#include "TextureAsset.hpp"
 
 namespace helengine::xbox {
 
@@ -27,10 +31,26 @@ void XboxRenderManager2D::Draw() {
 
 ::RuntimeTexture* XboxRenderManager2D::BuildTextureFromCooked(
     std::string cookedAssetPath, ::IContentStreamSource* contentStreamSource) {
-    (void)cookedAssetPath;
-    (void)contentStreamSource;
-    RecordUnsupported("cooked texture");
-    return nullptr;
+    // Scene loading resolves every sprite's texture while loading, long before
+    // anything is drawn, so returning null here fails the whole load - the 3D
+    // cube never appears even though it needs no texture at all. The extent is
+    // decoded and kept; no pixels reach the GPU, because this milestone draws
+    // no 2D.
+    const char* reason = nullptr;
+    ::TextureAsset* asset =
+        ReadCookedAssetAs<::TextureAsset>(cookedAssetPath, contentStreamSource, reason);
+    if (asset == nullptr) {
+        Diagnostics::Log("texture: %s (%s)", reason, cookedAssetPath.c_str());
+        return nullptr;
+    }
+    XboxRuntimeTexture* texture = XboxRuntimeTexture::Create(*asset, reason);
+    if (texture == nullptr) {
+        Diagnostics::Log("texture: %s (%s)", reason, cookedAssetPath.c_str());
+    } else {
+        ++texturesLoaded_;
+    }
+    DestroyAsset(asset);
+    return texture;
 }
 
 ::RuntimeTexture* XboxRenderManager2D::BuildTextureFromRaw(::TextureAsset* data) {
