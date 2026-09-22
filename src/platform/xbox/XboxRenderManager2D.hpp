@@ -4,22 +4,15 @@
 
 // Generated 2D render manager adapter.
 //
-// Core::Initialize requires a 2D manager, and RenderManager2D has five pure
-// virtuals, so one has to exist even though this milestone draws no 2D.
-//
-// Cooked texture construction is implemented, and has to be: the authored
-// cube_test scene carries sprites, and the scene loader resolves every
-// sprite's texture during loading. Refusing there fails the load outright and
-// the 3D cube never appears, even though the cube needs no texture. The
-// textures carry an extent and no pixels.
-//
-// The draw entries are reached only by a scene with 2D content. Each records
-// that it was called rather than doing nothing quietly, so such a scene
-// reports why nothing appeared instead of looking like a renderer fault.
+// Core::Initialize requires a 2D manager. This adapter owns accepted runtime
+// textures and visits each camera's ordered 2D queue after the 3D pass,
+// submitting supported sprites through the shared raster renderer.
 //
 // Nothing here throws.
 
 #include "RenderManager2D.hpp"
+
+namespace helengine::xbox { class XboxRasterRenderer; }
 
 namespace helengine::xbox {
 
@@ -29,6 +22,7 @@ public:
 
     void Draw() override;
     void Dispose() override;
+    void InstallRenderer(::helengine::xbox::XboxRasterRenderer* renderer);
 
     ::RuntimeTexture* BuildTextureFromCooked(std::string cookedAssetPath,
                                              ::IContentStreamSource* contentStreamSource) override;
@@ -51,12 +45,14 @@ public:
 
 private:
     void RecordUnsupported(const char* what);
+    void SubmitSprite(::ISpriteDrawable2D* sprite);
 
     unsigned unsupportedCalls_ = 0;
     unsigned texturesLoaded_ = 0;
     const char* lastUnsupported_ = "";
     const char* reportedUnsupported_ = nullptr;
     bool disposed_ = false;
+    ::helengine::xbox::XboxRasterRenderer* renderer_ = nullptr;
 };
 
 } // namespace helengine::xbox

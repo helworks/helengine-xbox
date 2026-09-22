@@ -20,6 +20,8 @@
 
 #include "RenderManager3D.hpp"
 
+class PlatformMaterialAsset;
+
 namespace helengine::xbox {
 
 class XboxRasterRenderer;
@@ -50,10 +52,10 @@ public:
 
     void Dispose() override;
 
-    ::RuntimeMaterial* BuildMaterialFromCooked(::PlatformMaterialAsset* materialAsset) override;
+    ::RuntimeMaterial* BuildMaterialFromCooked(::PlatformMaterialAsset* materialAsset);
 
     ::RuntimeMaterial* BuildMaterialFromCooked(std::string cookedAssetPath,
-                                               ::IContentStreamSource* contentStreamSource) override;
+                                               ::IContentStreamSource* contentStreamSource);
 
     ::RuntimeModel* BuildModelFromCooked(std::string cookedAssetPath,
                                          ::IContentStreamSource* contentStreamSource) override;

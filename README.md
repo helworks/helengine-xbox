@@ -113,16 +113,17 @@ for the same reason.
 The editor drives this through `builder/`, which the engine discovers via
 `user_settings/platforms.json`.
 
-## Test (CPU geometry and math)
+## Test (CPU contracts)
 
 ```powershell
 powershell -NoProfile -ExecutionPolicy Bypass -File .\scripts\test-native.ps1 `
   -OutputRoot C:\dev\helworks\builds\helengine-xbox\v01\native-tests-01
 ```
 
-Compiles `tests/native_contract_tests.cpp` with the geometry/math sources using
-the container's host `g++` with assertions forced on, then runs it. No nxdk
-headers and no Xbox binary are involved.
+Compiles `tests/native_contract_tests.cpp` with texture decoding/upload-layout,
+sprite-quad and geometry/math sources using the container's host `g++` with
+assertions forced on, then runs it. No nxdk headers and no Xbox binary are
+involved. The current suite passes 713 checks.
 
 ## Run in emulator
 

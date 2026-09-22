@@ -45,6 +45,7 @@ enum class XboxTextureStatus : std::uint8_t {
     MalformedPayload,
     InvalidPalette,
     InsufficientOutput,
+    UnsupportedExtent,
 };
 
 XboxTextureStatus DecodeTextureToRgba8(const XboxTextureSourceView& source, XboxRgbaPixel* output,

@@ -1,0 +1,8 @@
+!!RC1.0
+// Modulate the sampled RGBA texel by the interpolated sprite tint.
+{
+    rgb { spare0 = tex0 * col0; }
+    alpha { spare0 = tex0 * col0; }
+}
+out.rgb = spare0;
+out.a = spare0;

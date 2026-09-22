@@ -168,6 +168,9 @@ SRCS += \
 	$(PLATFORM_DIR)/XboxRuntimeModel.cpp \
 	$(PLATFORM_DIR)/XboxRuntimeMaterial.cpp \
 	$(PLATFORM_DIR)/XboxRuntimeTexture.cpp \
+	$(PLATFORM_DIR)/XboxTextureFormat.cpp \
+	$(PLATFORM_DIR)/XboxTextureUpload.cpp \
+	$(PLATFORM_DIR)/XboxSpriteGeometry.cpp \
 	$(PLATFORM_DIR)/XboxRenderManager3D.cpp \
 	$(PLATFORM_DIR)/XboxRenderManager2D.cpp \
 	$(PLATFORM_DIR)/XboxInputBackend.cpp \
@@ -176,7 +179,9 @@ endif
 
 SHADER_OBJS = \
 	$(SHADER_DIR)/unlit_vsh.inl \
-	$(SHADER_DIR)/unlit_psh.inl
+	$(SHADER_DIR)/unlit_psh.inl \
+	$(SHADER_DIR)/sprite_vsh.inl \
+	$(SHADER_DIR)/sprite_psh.inl
 
 HELENGINE_CXXFLAGS := \
 	-std=c++17 -Wall -Wextra -Werror $(HELENGINE_OPTFLAGS) \
@@ -286,12 +291,23 @@ endif
 # Hand-written shader sources compiled with the pinned nxdk tools only (no cgc):
 #   unlit.vsh  NV_vertex_program 1.1 text  -> vp20compiler -> NV2A microcode dwords
 #   unlit.psh  RC1.0 register-combiner text -> fp20compiler -> pbkit push calls
+#   sprite.vsh / sprite.psh use the same tools for the authored textured-quad pass.
 $(SHADER_DIR)/unlit_vsh.inl: $(SHADER_DIR)/unlit.vsh $(VP20COMPILER)
 	@echo "[ VP20     ] $@"
 	$(VE)$(VP20COMPILER) '$<' > '$@' || { rm -f '$@'; exit 1; }
 	@test -s '$@'
 
 $(SHADER_DIR)/unlit_psh.inl: $(SHADER_DIR)/unlit.psh $(FP20COMPILER)
+	@echo "[ FP20     ] $@"
+	$(VE)$(FP20COMPILER) '$<' > '$@' || { rm -f '$@'; exit 1; }
+	@test -s '$@'
+
+$(SHADER_DIR)/sprite_vsh.inl: $(SHADER_DIR)/sprite.vsh $(VP20COMPILER)
+	@echo "[ VP20     ] $@"
+	$(VE)$(VP20COMPILER) '$<' > '$@' || { rm -f '$@'; exit 1; }
+	@test -s '$@'
+
+$(SHADER_DIR)/sprite_psh.inl: $(SHADER_DIR)/sprite.psh $(FP20COMPILER)
 	@echo "[ FP20     ] $@"
 	$(VE)$(FP20COMPILER) '$<' > '$@' || { rm -f '$@'; exit 1; }
 	@test -s '$@'

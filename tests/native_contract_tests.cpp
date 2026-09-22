@@ -15,6 +15,8 @@
 #include "platform/xbox/XboxCubeMesh.hpp"
 #include "platform/xbox/XboxMath.hpp"
 #include "platform/xbox/XboxTextureFormat.hpp"
+#include "platform/xbox/XboxTextureUpload.hpp"
+#include "platform/xbox/XboxSpriteGeometry.hpp"
 
 using helengine::xbox::CubeGeometry;
 using helengine::xbox::CubeVertex;
@@ -34,6 +36,13 @@ using helengine::xbox::XboxTextureAlphaPrecision;
 using helengine::xbox::XboxTextureColorFormat;
 using helengine::xbox::XboxTextureSourceView;
 using helengine::xbox::XboxTextureStatus;
+using helengine::xbox::BuildXboxTextureLayout;
+using helengine::xbox::ConvertTextureToNv2a;
+using helengine::xbox::XboxTextureLayout;
+using helengine::xbox::TryBuildXboxSpriteQuad;
+using helengine::xbox::XboxSpriteInput;
+using helengine::xbox::XboxSpriteQuad;
+using helengine::xbox::XboxSpriteStatus;
 
 namespace {
 
@@ -442,12 +451,108 @@ bool TestXboxTextureDecoding() {
     return true;
 }
 
+bool TestXboxTextureUploadLayout() {
+    XboxTextureLayout layout{};
+    CHECK(BuildXboxTextureLayout(3, 2, layout) == XboxTextureStatus::Ok);
+    CHECK(layout.RealWidth == 3 && layout.RealHeight == 2);
+    CHECK(layout.StorageWidth == 3 && layout.StorageHeight == 2);
+    CHECK(layout.BytesPerTexel == 4 && layout.HardwareFormat == 0x12 && layout.ByteCount == 24);
+
+    const XboxRgbaPixel pixels[] = {{0x12, 0x34, 0x56, 0x78}, {0xaa, 0xbb, 0xcc, 0xdd},
+                                    {1, 2, 3, 4}, {5, 6, 7, 8}, {9, 10, 11, 12}, {13, 14, 15, 16}};
+    std::uint8_t bytes[24]{};
+    const std::uint8_t sourceBytes[24]{};
+    const XboxTextureSourceView source{3, 2, XboxTextureColorFormat::Rgba32,
+                                       XboxTextureAlphaPrecision::A8, sourceBytes, sizeof(sourceBytes), nullptr, 0};
+    CHECK(ConvertTextureToNv2a(source, pixels, layout, bytes, sizeof(bytes)) == XboxTextureStatus::Ok);
+    CHECK(bytes[0] == 0x56 && bytes[1] == 0x34 && bytes[2] == 0x12 && bytes[3] == 0x78);
+    CHECK(bytes[4] == 0xcc && bytes[5] == 0xbb && bytes[6] == 0xaa && bytes[7] == 0xdd);
+    CHECK(ConvertTextureToNv2a(source, pixels, layout, bytes, 23) == XboxTextureStatus::InsufficientOutput);
+
+    XboxTextureLayout untouched{1, 2, 3, 4, 5, 6, 7};
+    CHECK(BuildXboxTextureLayout(0, 2, untouched) == XboxTextureStatus::InvalidExtent);
+    CHECK(untouched.RealWidth == 1 && untouched.ByteCount == 7);
+    CHECK(BuildXboxTextureLayout(16384, 1, untouched) == XboxTextureStatus::UnsupportedExtent);
+    CHECK(BuildXboxTextureLayout(1, 65536, untouched) == XboxTextureStatus::UnsupportedExtent);
+    CHECK(BuildXboxTextureLayout(0xffffffffu, 0xffffffffu, untouched) == XboxTextureStatus::UnsupportedExtent);
+    return true;
+}
+
+bool TestXboxSpriteGeometry() {
+    XboxSpriteInput input{10.0f, 20.0f, 32.0f, 16.0f, 0.0f,
+                          0.0f, 0.0f, 1.0f, 1.0f, 16, 8, 16, 8,
+                          {255, 255, 255, 255}};
+    XboxSpriteQuad quad{};
+    CHECK(TryBuildXboxSpriteQuad(input, quad) == XboxSpriteStatus::Ok);
+    CHECK(Near(quad.Vertices[0].X, 10.0f) && Near(quad.Vertices[0].Y, 20.0f));
+    CHECK(Near(quad.Vertices[1].X, 42.0f) && Near(quad.Vertices[1].Y, 20.0f));
+    CHECK(Near(quad.Vertices[2].X, 42.0f) && Near(quad.Vertices[2].Y, 36.0f));
+    CHECK(Near(quad.Vertices[3].X, 10.0f) && Near(quad.Vertices[3].Y, 36.0f));
+    CHECK(Near(quad.Vertices[0].U, 0.0f) && Near(quad.Vertices[0].V, 0.0f));
+    CHECK(Near(quad.Vertices[2].U, 1.0f) && Near(quad.Vertices[2].V, 1.0f));
+    CHECK(Near(quad.Vertices[0].R, 1.0f) && Near(quad.Vertices[0].A, 1.0f));
+
+    input.SourceX = 0.25f;
+    input.SourceY = 0.25f;
+    input.SourceWidth = 0.5f;
+    input.SourceHeight = 0.5f;
+    input.StoredTextureWidth = 32;
+    input.StoredTextureHeight = 16;
+    CHECK(TryBuildXboxSpriteQuad(input, quad) == XboxSpriteStatus::Ok);
+    CHECK(Near(quad.Vertices[0].U, 0.125f) && Near(quad.Vertices[0].V, 0.125f));
+    CHECK(Near(quad.Vertices[2].U, 0.375f) && Near(quad.Vertices[2].V, 0.375f));
+
+    input = {0.0f, 0.0f, 2.0f, 4.0f, kPi / 2.0f,
+             0.0f, 0.0f, 1.0f, 1.0f, 2, 4, 2, 4,
+             {128, 64, 32, 16}};
+    CHECK(TryBuildXboxSpriteQuad(input, quad) == XboxSpriteStatus::Ok);
+    CHECK(Near(quad.Vertices[0].X, 3.0f) && Near(quad.Vertices[0].Y, 1.0f));
+    CHECK(Near(quad.Vertices[0].R, 128.0f / 255.0f));
+    CHECK(Near(quad.Vertices[0].G, 64.0f / 255.0f));
+
+    XboxSpriteInput scaled = input;
+    scaled.Width = 64.0f;
+    scaled.Height = 32.0f;
+    scaled.RotationRadians = 0.0f;
+    CHECK(TryBuildXboxSpriteQuad(scaled, quad) == XboxSpriteStatus::Ok);
+    CHECK(Near(quad.Vertices[1].X - quad.Vertices[0].X, 64.0f));
+    CHECK(Near(quad.Vertices[3].Y - quad.Vertices[0].Y, 32.0f));
+
+    XboxSpriteInput invalid = input;
+    invalid.Width = 0.0f;
+    CHECK(TryBuildXboxSpriteQuad(invalid, quad) == XboxSpriteStatus::InvalidSize);
+    invalid = input;
+    invalid.RealTextureWidth = 0;
+    CHECK(TryBuildXboxSpriteQuad(invalid, quad) == XboxSpriteStatus::InvalidExtent);
+    invalid = input;
+    invalid.SourceX = -0.1f;
+    CHECK(TryBuildXboxSpriteQuad(invalid, quad) == XboxSpriteStatus::InvalidSourceRect);
+    invalid = input;
+    invalid.SourceWidth = 0.0f;
+    CHECK(TryBuildXboxSpriteQuad(invalid, quad) == XboxSpriteStatus::InvalidSourceRect);
+    invalid = input;
+    invalid.SourceX = 0.75f;
+    invalid.SourceWidth = 0.5f;
+    CHECK(TryBuildXboxSpriteQuad(invalid, quad) == XboxSpriteStatus::InvalidSourceRect);
+    invalid = input;
+    invalid.RotationRadians = NAN;
+    CHECK(TryBuildXboxSpriteQuad(invalid, quad) == XboxSpriteStatus::NonFinite);
+    invalid = input;
+    invalid.X = INFINITY;
+    CHECK(TryBuildXboxSpriteQuad(invalid, quad) == XboxSpriteStatus::NonFinite);
+    invalid = input;
+    invalid.StoredTextureWidth = 1;
+    CHECK(TryBuildXboxSpriteQuad(invalid, quad) == XboxSpriteStatus::InvalidExtent);
+    return true;
+}
+
 } // namespace
 
 int main() {
     const bool ok = TestCubeGeometry() && TestMath() && TestDefaultPoseIsInFrontOfCamera() &&
                     TestContentPathResolution() && TestGeneratedMatrixConversion() &&
-                    TestCameraTransformValidation() && TestXboxTextureDecoding();
+                    TestCameraTransformValidation() && TestXboxTextureDecoding() && TestXboxTextureUploadLayout() &&
+                    TestXboxSpriteGeometry();
     if (!ok) {
         std::fprintf(stderr, "native contract tests FAILED after %d checks\n", g_checks);
         return 1;

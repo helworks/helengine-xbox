@@ -22,6 +22,8 @@ class XboxInputBackend final : public ::IInputBackend {
 public:
     XboxInputBackend();
 
+    bool get_ReceiveInputInBackground() override;
+    void set_ReceiveInputInBackground(bool value) override;
     ::InputFrameState CaptureFrame() override;
 
     // Number of frames captured, so the host can show that input was polled.
@@ -29,6 +31,7 @@ public:
 
 private:
     unsigned capturedFrames_ = 0;
+    bool receiveInputInBackground_ = false;
 };
 
 } // namespace helengine::xbox

@@ -37,6 +37,10 @@ Paths are relative to the nxdk checkout.
 | Depth mode | `pb_init` leaves `NV097_SET_CONTROL0` (0x290) at `STENCIL_WRITE_ENABLE \| Z_PERSPECTIVE_ENABLE \| TEXTURE_PERSPECTIVE_ENABLE` (0x00110001). `Z_PERSPECTIVE_ENABLE` (bit 16) makes the GPU derive depth from `w` instead of the program's screen-space z. The renderer clears that bit each frame and keeps the other two. See "Depth mode is not pbkit's default" below. | `lib/pbkit/pbkit.c:1718`, `lib/pbkit/nv_regs.h:159-167` |
 | Drain / shutdown | `pb_busy()` = DMA get != put or PGRAPH busy. `pb_kill()` jumps the DMA to head, waits (bounded by `TICKSTIMEOUT`), waits for pending swaps, uninstalls the interrupt, frees pbkit's own buffers and restores the video state. Returning from `main` reaches `_PDCLIB_Exit` = `HalReturnToFirmware(HalQuickRebootRoutine)`. | `lib/pbkit/pbkit.c:1557,2037`, `lib/pdclib/platform/xbox/functions/_PDCLIB/_PDCLIB_Exit.c` |
 | Text overlay | `pb_print` / `pb_draw_text_screen` render with `pb_fill` rectangle clears only; they do not touch 3D state. 16 rows x 60 columns. | `lib/pbkit/pbkit_print.c` |
+| Linear texture storage | `NV097_SET_TEXTURE_FORMAT_COLOR_LU_IMAGE_A8R8G8B8` is format `0x12`; `NV097_SET_TEXTURE_CONTROL1_IMAGE_PITCH` carries byte pitch; `NV097_SET_TEXTURE_IMAGE_RECT` carries actual 16-bit width/height. Use 2D, one mip, linear layout with `pitch = width * 4`, no power-of-two padding; reject a row pitch above `0xffff` or extent above the image-rect fields. Upload byte order is B,G,R,A for little-endian A8R8G8B8 words. | `lib/pbkit/nv_regs.h:526-617`; pinned `samples/mesh/main.c:305-313` uploads `width*4` pitch and actual NPOT dimensions sequentially |
+| Texture stage 0 sampling | The pinned mesh sample binds stage 0 texture address/format, sets explicit pitch and NPOT size, uses wrap value 3 (clamp) for U/V/W, enables the stage and uses filter word `0x04074000`; the other three stages are disabled. The sprite pass uses that same clamp mode and filter word pending visual verification. | pinned `samples/mesh/main.c:129-152`; register methods/fields `lib/pbkit/nv_regs.h:526-617` |
+| Sprite blend/depth/cull state | The ordered 2D pass uses `SRC_ALPHA` / `ONE_MINUS_SRC_ALPHA` and ADD, with depth test/write and culling disabled and full color writes enabled. The next authored 3D frame reloads its vertex program/combiner and restores depth/cull/blend/texture state. The sprite path has passed compiler checks but still needs xemu image verification. | pinned `lib/pbkit/nv_regs.h:224-310,341-344`; `src/platform/xbox/XboxRasterRenderer.cpp` |
+| Texture GPU ownership | Allocate final bytes contiguously with `MmAllocateContiguousMemoryEx(size, 0, 0x03FFAFFF, 0, PAGE_READWRITE | PAGE_WRITECOMBINE)`, upload sequentially, bind the 26-bit GPU offset (`pointer & 0x03FFFFFF`), and free with `MmFreeContiguousMemory` only after `XboxVideo::Drain()`. No allocation occurs during sprite submission. | `lib/xboxkrnl/xboxkrnl.h:3409,3464`; pinned `samples/mesh/main.c:88-90,305-313`; existing host drain/disposal sequence |
 | Diagnostics | `debugPrint` writes to the HAL debug framebuffer (visible via `pb_show_debug_screen`); `DbgPrint` goes to the kernel debug channel. | `lib/hal/debug.h`, `lib/xboxkrnl/xboxkrnl.h:4386` |
 
 ## Conventions used by the probe
@@ -221,7 +225,9 @@ neither startup nor steady state.
 | Check | Result |
 | --- | --- |
 | Toolchain image build | pass (`scripts/prepare_toolchain.ps1`, lock regenerated) |
-| CPU contract tests | pass, 588 checks (`scripts/test-native.ps1`) |
+| CPU contract tests | pass, 713 checks (texture decoding/upload layout, sprite quads and prior native contracts; `scripts/test-native.ps1`) |
+| Diagnostic Cube Debug rebuild with sprite shader sources | pass using exact pinned commit `29638d0b001f179b73c3513489af10ddc2986216`; XBE magic `XBEH`, XISO lists `/default.xbe`; native C++ warning policy remained `-Wall -Wextra -Werror` (output: `C:\dev\helworks\builds\helengine-xbox\v02\sprites-diagnostic-debug-4`) |
+| Authored sprite XBE / xemu framebuffer | pending: active generated-Core and cooked-content roots are not available in this workspace |
 | Clear / Triangle / Cube Debug builds | pass; XBE magic `XBEH`, XISO lists `/default.xbe` |
 | Cube Release build | pass |
 | Diagnostic variant builds | pass: `-Pose Far`, `-Pose NearPlane`, `-Pose ScreenEdge`, `-DisableCulling`, `-ReverseTriangleOrder`, `-StopAfterFrames 300` (Cube/Debug) |
@@ -250,7 +256,11 @@ baseline histogram is identical before and after the fix.
 
 ## Known limitations
 
-- 640x480 32-bit only; no textures, lighting, MSAA or offscreen passes.
+- 640x480 32-bit only; authored sprite path accepts cooked `Rgba32`,
+  `Rgba4444`, `Indexed4` and `Indexed8` textures, with GX RGB5A3 rejected.
+  Text, fonts, rounded rectangles, textured 3D materials, runtime texture
+  updates, lighting, MSAA and offscreen passes remain unsupported. Sprite XBE
+  build and framebuffer verification are pending current authored inputs.
 - Rotation is not implemented (static pose by design).
 - Finite-frame runs end with nxdk's quick reboot after a five-second hold on
   the debug console; there is no controller input or menu.

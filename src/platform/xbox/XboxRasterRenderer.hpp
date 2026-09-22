@@ -7,8 +7,11 @@
 #include "XboxBootHost.hpp"
 #include "XboxCubeMesh.hpp"
 #include "XboxMath.hpp"
+#include "XboxSpriteGeometry.hpp"
 
 namespace helengine::xbox {
+
+class XboxRuntimeTexture;
 
 struct RendererCounters {
     unsigned Allocations = 0; // GPU-visible allocations performed
@@ -43,6 +46,10 @@ public:
                       const unsigned short* indices,
                       unsigned indexCount);
 
+    // Begins the ordered 2D overlay pass after Core's 3D draws.
+    bool BeginSpritePass();
+    bool DrawSprite(const XboxSpriteQuad& quad, const XboxRuntimeTexture& texture);
+
     // Releases GPU-visible storage. Call only after the GPU has been drained.
     void Shutdown();
 
@@ -50,14 +57,24 @@ public:
 
 private:
     bool UploadPrograms();
+    bool UploadVertexProgram(const uint32_t* program, unsigned instructionCount);
+    void PushUnlitCombiner();
+    void PushSpriteCombiner();
     bool BuildTransforms(unsigned width, unsigned height);
     void PushRenderState();
     void PushConstants(const Matrix4& clip);
     void PushVertexAttributes(const CubeVertex* base);
+    void PushSpriteVertexAttributes(const XboxSpriteVertex* base);
     void PushIndexedTriangles(const unsigned short* indices, unsigned indexCount);
 
     bool initialized_ = false;
     CubeVertex* gpuVertices_ = nullptr; // write-combined contiguous memory; never read back
+    XboxSpriteVertex* gpuSpriteVertices_ = nullptr;
+    unsigned spriteCount_ = 0;
+    bool spritePassActive_ = false;
+#if defined(HELENGINE_XBOX_HAS_GENERATED_CORE)
+    bool spriteCapacityReported_ = false;
+#endif
     unsigned gpuVertexCount_ = 0;
     unsigned cubeFirstVertex_ = 0;
     unsigned triangleFirstVertex_ = 0;

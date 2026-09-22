@@ -179,6 +179,7 @@ int RunAuthoredScene(unsigned stopAfterFrames, RuntimeResult& result) {
     render3D.AddWindow(0, static_cast<int32_t>(video.Width()), static_cast<int32_t>(video.Height()));
     render3D.SetViewport(video.Width(), video.Height());
     render3D.InstallRenderer(&renderer);
+    render2D.InstallRenderer(&renderer);
 
     // Owned by Core once handed over; Core's Dispose releases them.
     ::CoreInitializationOptions* options = new ::CoreInitializationOptions();
@@ -234,6 +235,7 @@ int RunAuthoredScene(unsigned stopAfterFrames, RuntimeResult& result) {
             return 1;
         }
         core->Draw();
+        render2D.Draw();
         const AuthoredFrameCounts& counts = render3D.LastFrame();
         std::snprintf(overlay, sizeof(overlay), "helengine-xbox authored cam %u draw %u tri %u",
                       counts.Cameras, counts.Submitted, counts.Triangles);

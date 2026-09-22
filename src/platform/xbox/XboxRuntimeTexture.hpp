@@ -4,18 +4,11 @@
 
 // Native texture built from one cooked TextureAsset.
 //
-// This milestone does not draw 2D, so nothing is uploaded to the GPU: the
-// texture carries its decoded extent and no pixels. That is not a shortcut
-// around a missing feature, it is what scene loading actually needs. The
-// authored cube_test scene contains sprites, and the scene loader resolves
-// every sprite's texture while loading, long before anything is drawn -
-// returning null there fails the load outright and the cube never appears,
-// even though the cube itself needs no texture at all.
-//
-// When 2D rendering arrives, this is where the swizzled NV2A upload belongs.
+// Owns one validated, linear A8R8G8B8 allocation in Xbox GPU-visible memory.
 
 #include "RuntimeTexture.hpp"
 #include "TextureAsset.hpp"
+#include "XboxTextureUpload.hpp"
 
 namespace helengine::xbox {
 
@@ -28,9 +21,16 @@ public:
 
     void Dispose() override;
 
+    std::uint32_t GpuOffset() const { return gpuOffset_; }
+    const XboxTextureLayout& Layout() const { return layout_; }
+    bool IsDisposedNative() const { return disposed_; }
+
 private:
     XboxRuntimeTexture();
 
+    void* gpuMemory_ = nullptr;
+    std::uint32_t gpuOffset_ = 0;
+    XboxTextureLayout layout_{};
     bool disposed_ = false;
 };
 

@@ -1,6 +1,7 @@
 #include "XboxRasterRenderer.hpp"
 
 #include "XboxDiagnostics.hpp"
+#include "XboxRuntimeTexture.hpp"
 
 #include <cstddef>
 #include <cstdint>
@@ -46,6 +47,18 @@ constexpr unsigned kConstantVectorCount = 6; // c[0..3] clip rows, c[4] scale, c
 constexpr unsigned kPositionAttribute = 0;
 constexpr unsigned kColorAttribute = 3;
 constexpr unsigned kAttributeCount = 16;
+constexpr unsigned kPosition2DAttribute = 0;
+constexpr unsigned kTintAttribute = 3;
+constexpr unsigned kTextureCoordinateAttribute = 9;
+#if defined(HELENGINE_XBOX_HAS_GENERATED_CORE)
+constexpr unsigned kMaxSpriteQuadsPerFrame = 512;
+constexpr unsigned kSpriteVertexCount = kMaxSpriteQuadsPerFrame * 4;
+constexpr std::uint32_t kNvTextureFormatLinearA8R8G8B8 = 0x12;
+constexpr std::uint32_t kNvTextureStage0LinearFormat = 0x00011222;
+constexpr std::uint32_t kNvTextureAddressClamp = 0x00030303;
+constexpr std::uint32_t kNvTextureFilterFromPinnedMeshSample = 0x04074000;
+constexpr std::uint32_t kNvTextureControlEnabled = 0x4003ffc0;
+#endif
 
 // 24-bit depth range used by pbkit for Z24S8 (pb_ZScale = 0xFFFFFF).
 constexpr float kDepthScale = 16777215.0f;
@@ -74,6 +87,19 @@ const uint32_t kVertexProgram[] = {
 #include "shaders/unlit_vsh.inl"
 };
 static_assert(sizeof(kVertexProgram) % 16 == 0, "vertex program must be whole 16-byte instructions");
+
+#if defined(HELENGINE_XBOX_HAS_GENERATED_CORE)
+const uint32_t kSpriteVertexProgram[] = {
+#include "shaders/sprite_vsh.inl"
+};
+static_assert(sizeof(kSpriteVertexProgram) % 16 == 0, "sprite vertex program must be whole instructions");
+static_assert(sizeof(XboxSpriteVertex) == 32, "sprite vertex must be eight floats");
+static_assert(offsetof(XboxSpriteVertex, X) == 0, "sprite position offset");
+static_assert(offsetof(XboxSpriteVertex, U) == 8, "sprite texture-coordinate offset");
+static_assert(offsetof(XboxSpriteVertex, R) == 16, "sprite tint offset");
+
+const unsigned short kSpriteIndices[6] = {0, 1, 2, 0, 2, 3};
+#endif
 
 // Single triangle for the Triangle probe: counter-clockwise from the camera,
 // red/green/blue corners, drawn through the same indexed path as the cube.
@@ -139,7 +165,27 @@ bool XboxRasterRenderer::Initialize(unsigned width, unsigned height) {
     std::memcpy(gpuVertices_ + cubeFirstVertex_, cube_.Vertices, sizeof(cube_.Vertices));
     std::memcpy(gpuVertices_ + triangleFirstVertex_, kTriangleVertices, sizeof(kTriangleVertices));
 
+#if defined(HELENGINE_XBOX_HAS_GENERATED_CORE)
+    const SIZE_T spriteBytes = static_cast<SIZE_T>(kSpriteVertexCount) * sizeof(XboxSpriteVertex);
+    gpuSpriteVertices_ = static_cast<XboxSpriteVertex*>(MmAllocateContiguousMemoryEx(
+        spriteBytes, 0, kGpuHighestAddress, 0, PAGE_READWRITE | PAGE_WRITECOMBINE));
+    if (gpuSpriteVertices_ == nullptr) {
+        Diagnostics::Log("renderer error: sprite vertex allocation (%lu bytes) failed",
+                         static_cast<unsigned long>(spriteBytes));
+        MmFreeContiguousMemory(gpuVertices_);
+        gpuVertices_ = nullptr;
+        ++counters_.Releases;
+        return false;
+    }
+    ++counters_.Allocations;
+#endif
+
     if (!UploadPrograms()) {
+        if (gpuSpriteVertices_ != nullptr) {
+            MmFreeContiguousMemory(gpuSpriteVertices_);
+            gpuSpriteVertices_ = nullptr;
+            ++counters_.Releases;
+        }
         MmFreeContiguousMemory(gpuVertices_);
         ++counters_.Releases;
         gpuVertices_ = nullptr;
@@ -195,6 +241,15 @@ bool XboxRasterRenderer::BuildTransforms(unsigned width, unsigned height) {
 }
 
 bool XboxRasterRenderer::UploadPrograms() {
+    const unsigned instructionCount = static_cast<unsigned>(sizeof(kVertexProgram) / 16);
+    if (!UploadVertexProgram(kVertexProgram, instructionCount)) return false;
+    PushUnlitCombiner();
+    Diagnostics::Log("renderer: uploaded %u vertex program instructions and unlit combiner", instructionCount);
+    return true;
+}
+
+bool XboxRasterRenderer::UploadVertexProgram(const uint32_t* program, unsigned instructionCount) {
+    if (program == nullptr || instructionCount == 0) return false;
     uint32_t* p = pb_begin();
     p = pb_push1(p, NV097_SET_TRANSFORM_PROGRAM_START, 0);
     p = pb_push1(p, NV097_SET_TRANSFORM_EXECUTION_MODE,
@@ -206,21 +261,27 @@ bool XboxRasterRenderer::UploadPrograms() {
     pb_end(p);
 
     // Instructions are 16 bytes; upload one per block exactly like the samples.
-    const unsigned instructionCount = static_cast<unsigned>(sizeof(kVertexProgram) / 16);
     for (unsigned i = 0; i < instructionCount; ++i) {
         p = pb_begin();
         pb_push(p++, NV097_SET_TRANSFORM_PROGRAM, 4);
-        std::memcpy(p, &kVertexProgram[i * 4], 16);
+        std::memcpy(p, &program[i * 4], 16);
         p += 4;
         pb_end(p);
     }
 
-    // Register combiner: generated pbkit pushes from shaders/unlit.psh.
-    p = pb_begin();
+    return true;
+}
+
+void XboxRasterRenderer::PushUnlitCombiner() {
+    uint32_t* p = pb_begin();
 #include "shaders/unlit_psh.inl"
     pb_end(p);
-    Diagnostics::Log("renderer: uploaded %u vertex program instructions and unlit combiner", instructionCount);
-    return true;
+}
+
+void XboxRasterRenderer::PushSpriteCombiner() {
+    uint32_t* p = pb_begin();
+#include "shaders/sprite_psh.inl"
+    pb_end(p);
 }
 
 void XboxRasterRenderer::PushRenderState() {
@@ -229,6 +290,9 @@ void XboxRasterRenderer::PushRenderState() {
     p = pb_push1(p, NV097_SET_SPECULAR_ENABLE, 0);
     p = pb_push1(p, NV097_SET_FOG_ENABLE, 0);
     p = pb_push1(p, NV097_SET_BLEND_ENABLE, 0);
+    p = pb_push1(p, NV097_SET_BLEND_FUNC_SFACTOR, NV097_SET_BLEND_FUNC_SFACTOR_V_ONE);
+    p = pb_push1(p, NV097_SET_BLEND_FUNC_DFACTOR, NV097_SET_BLEND_FUNC_DFACTOR_V_ZERO);
+    p = pb_push1(p, NV097_SET_BLEND_EQUATION, NV097_SET_BLEND_EQUATION_V_FUNC_ADD);
     p = pb_push1(p, NV097_SET_ALPHA_TEST_ENABLE, 0);
     p = pb_push1(p, NV097_SET_STENCIL_TEST_ENABLE, 0);
     p = pb_push1(p, NV097_SET_COLOR_MASK, 0x01010101); // write A, R, G, B
@@ -250,9 +314,131 @@ void XboxRasterRenderer::PushRenderState() {
     p = pb_push1(p, NV097_SET_CULL_FACE, NV097_SET_CULL_FACE_V_BACK);
     p = pb_push1(p, NV097_SET_CULL_FACE_ENABLE, HELENGINE_XBOX_DISABLE_CULLING ? 0 : 1);
     for (uint32_t stage = 0; stage < 4; ++stage) {
-        p = pb_push1(p, NV097_SET_TEXTURE_CONTROL0 + stage * 64, 0); // texture stage disabled
+        const uint32_t base = stage * 64;
+        p = pb_push1(p, NV097_SET_TEXTURE_CONTROL0 + base, 0); // texture stage disabled
+        p = pb_push1(p, NV097_SET_TEXTURE_OFFSET + base, 0);
+        p = pb_push1(p, NV097_SET_TEXTURE_FORMAT + base, 0);
+        p = pb_push1(p, NV097_SET_TEXTURE_CONTROL1 + base, 0);
+        p = pb_push1(p, NV097_SET_TEXTURE_ADDRESS + base, 0);
+        p = pb_push1(p, NV097_SET_TEXTURE_FILTER + base, 0);
+        p = pb_push1(p, NV097_SET_TEXTURE_IMAGE_RECT + base, 0);
     }
     pb_end(p);
+}
+
+void XboxRasterRenderer::PushSpriteVertexAttributes(const XboxSpriteVertex* vertices) {
+    const uintptr_t base = reinterpret_cast<uintptr_t>(vertices);
+    const uint32_t stride = static_cast<uint32_t>(sizeof(XboxSpriteVertex));
+    const uint32_t positionAddress = static_cast<uint32_t>(base + offsetof(XboxSpriteVertex, X)) & kGpuAddressMask;
+    const uint32_t tintAddress = static_cast<uint32_t>(base + offsetof(XboxSpriteVertex, R)) & kGpuAddressMask;
+    const uint32_t texcoordAddress = static_cast<uint32_t>(base + offsetof(XboxSpriteVertex, U)) & kGpuAddressMask;
+
+    uint32_t* p = pb_begin();
+    pb_push(p++, NV097_SET_VERTEX_DATA_ARRAY_FORMAT, kAttributeCount);
+    for (unsigned i = 0; i < kAttributeCount; ++i) *(p++) = NV097_SET_VERTEX_DATA_ARRAY_FORMAT_TYPE_F;
+    const uint32_t type = MaskValue(NV097_SET_VERTEX_DATA_ARRAY_FORMAT_TYPE,
+                                    NV097_SET_VERTEX_DATA_ARRAY_FORMAT_TYPE_F);
+    p = pb_push1(p, NV097_SET_VERTEX_DATA_ARRAY_FORMAT + kPosition2DAttribute * 4,
+                 type | MaskValue(NV097_SET_VERTEX_DATA_ARRAY_FORMAT_SIZE, 2) |
+                     MaskValue(NV097_SET_VERTEX_DATA_ARRAY_FORMAT_STRIDE, stride));
+    p = pb_push1(p, NV097_SET_VERTEX_DATA_ARRAY_OFFSET + kPosition2DAttribute * 4, positionAddress);
+    p = pb_push1(p, NV097_SET_VERTEX_DATA_ARRAY_FORMAT + kTintAttribute * 4,
+                 type | MaskValue(NV097_SET_VERTEX_DATA_ARRAY_FORMAT_SIZE, 4) |
+                     MaskValue(NV097_SET_VERTEX_DATA_ARRAY_FORMAT_STRIDE, stride));
+    p = pb_push1(p, NV097_SET_VERTEX_DATA_ARRAY_OFFSET + kTintAttribute * 4, tintAddress);
+    p = pb_push1(p, NV097_SET_VERTEX_DATA_ARRAY_FORMAT + kTextureCoordinateAttribute * 4,
+                 type | MaskValue(NV097_SET_VERTEX_DATA_ARRAY_FORMAT_SIZE, 2) |
+                     MaskValue(NV097_SET_VERTEX_DATA_ARRAY_FORMAT_STRIDE, stride));
+    p = pb_push1(p, NV097_SET_VERTEX_DATA_ARRAY_OFFSET + kTextureCoordinateAttribute * 4, texcoordAddress);
+    pb_end(p);
+}
+
+bool XboxRasterRenderer::BeginSpritePass() {
+#if !defined(HELENGINE_XBOX_HAS_GENERATED_CORE)
+    return false;
+#else
+    if (!initialized_ || gpuSpriteVertices_ == nullptr) {
+        Diagnostics::Log("renderer error: sprite pass unavailable");
+        return false;
+    }
+    spriteCount_ = 0;
+    spritePassActive_ = true;
+    if (!UploadVertexProgram(kSpriteVertexProgram, static_cast<unsigned>(sizeof(kSpriteVertexProgram) / 16))) {
+        spritePassActive_ = false;
+        return false;
+    }
+    const float spriteConstants[4] = {0.0f, 1.0f, 0.0f, 0.0f};
+    uint32_t* p = pb_begin();
+    p = pb_push1(p, NV097_SET_TRANSFORM_CONSTANT_LOAD, kConstantBase);
+    pb_push(p++, NV097_SET_TRANSFORM_CONSTANT, 4);
+    std::memcpy(p, spriteConstants, sizeof(spriteConstants));
+    p += 4;
+    p = pb_push1(p, NV097_SET_LIGHTING_ENABLE, 0);
+    p = pb_push1(p, NV097_SET_SPECULAR_ENABLE, 0);
+    p = pb_push1(p, NV097_SET_FOG_ENABLE, 0);
+    p = pb_push1(p, NV097_SET_BLEND_ENABLE, 1);
+    p = pb_push1(p, NV097_SET_BLEND_FUNC_SFACTOR, NV097_SET_BLEND_FUNC_SFACTOR_V_SRC_ALPHA);
+    p = pb_push1(p, NV097_SET_BLEND_FUNC_DFACTOR, NV097_SET_BLEND_FUNC_DFACTOR_V_ONE_MINUS_SRC_ALPHA);
+    p = pb_push1(p, NV097_SET_BLEND_EQUATION, NV097_SET_BLEND_EQUATION_V_FUNC_ADD);
+    p = pb_push1(p, NV097_SET_ALPHA_TEST_ENABLE, 0);
+    p = pb_push1(p, NV097_SET_STENCIL_TEST_ENABLE, 0);
+    p = pb_push1(p, NV097_SET_COLOR_MASK, 0x01010101);
+    p = pb_push1(p, NV097_SET_CONTROL0,
+                 NV097_SET_CONTROL0_STENCIL_WRITE_ENABLE | NV097_SET_CONTROL0_TEXTURE_PERSPECTIVE_ENABLE);
+    p = pb_push1(p, NV097_SET_DEPTH_TEST_ENABLE, 0);
+    p = pb_push1(p, NV097_SET_DEPTH_MASK, 0);
+    p = pb_push1(p, NV097_SET_CULL_FACE_ENABLE, 0);
+    p = pb_push1(p, NV097_SET_TEXTURE_OFFSET, 0);
+    p = pb_push1(p, NV097_SET_TEXTURE_FORMAT, kNvTextureStage0LinearFormat);
+    p = pb_push1(p, NV097_SET_TEXTURE_CONTROL1, 0);
+    p = pb_push1(p, NV097_SET_TEXTURE_ADDRESS, kNvTextureAddressClamp);
+    p = pb_push1(p, NV097_SET_TEXTURE_FILTER, kNvTextureFilterFromPinnedMeshSample);
+    p = pb_push1(p, NV097_SET_TEXTURE_CONTROL0, kNvTextureControlEnabled);
+    for (uint32_t stage = 1; stage < 4; ++stage)
+        p = pb_push1(p, NV097_SET_TEXTURE_CONTROL0 + stage * 64, 0);
+    pb_end(p);
+    PushSpriteCombiner();
+    return true;
+#endif
+}
+
+bool XboxRasterRenderer::DrawSprite(const XboxSpriteQuad& quad, const XboxRuntimeTexture& texture) {
+#if !defined(HELENGINE_XBOX_HAS_GENERATED_CORE)
+    (void)quad;
+    (void)texture;
+    return false;
+#else
+    if (!initialized_ || !spritePassActive_ || gpuSpriteVertices_ == nullptr) {
+        Diagnostics::Log("renderer error: DrawSprite outside sprite pass");
+        return false;
+    }
+    const XboxTextureLayout& layout = texture.Layout();
+    if (texture.IsDisposedNative() || texture.GpuOffset() == 0 || layout.RealWidth == 0 ||
+        layout.RealHeight == 0 || layout.StorageWidth != layout.RealWidth ||
+        layout.StorageHeight != layout.RealHeight || layout.BytesPerTexel != 4 ||
+        layout.HardwareFormat != kNvTextureFormatLinearA8R8G8B8) {
+        return false;
+    }
+    if (spriteCount_ >= kMaxSpriteQuadsPerFrame) {
+        if (!spriteCapacityReported_) {
+            spriteCapacityReported_ = true;
+            Diagnostics::Log("renderer warning: sprite frame capacity (%u) reached", kMaxSpriteQuadsPerFrame);
+        }
+        return false;
+    }
+    XboxSpriteVertex* vertices = gpuSpriteVertices_ + spriteCount_ * 4;
+    std::memcpy(vertices, quad.Vertices, sizeof(quad.Vertices));
+    uint32_t* p = pb_begin();
+    p = pb_push1(p, NV097_SET_TEXTURE_OFFSET, texture.GpuOffset());
+    p = pb_push1(p, NV097_SET_TEXTURE_CONTROL1, layout.RealWidth << 16);
+    p = pb_push1(p, NV097_SET_TEXTURE_IMAGE_RECT,
+                 ((layout.RealWidth & 0xffffu) << 16) | (layout.RealHeight & 0xffffu));
+    pb_end(p);
+    PushSpriteVertexAttributes(vertices);
+    PushIndexedTriangles(kSpriteIndices, 6);
+    ++spriteCount_;
+    return true;
+#endif
 }
 
 void XboxRasterRenderer::PushConstants(const Matrix4& clip) {
@@ -325,7 +511,7 @@ void XboxRasterRenderer::PushIndexedTriangles(const unsigned short* indices, uns
 }
 
 bool XboxRasterRenderer::Draw(ProbeMode mode) {
-    if (!initialized_) {
+    if (!initialized_ || spritePassActive_) {
         Diagnostics::Log("renderer error: Draw before Initialize");
         return false;
     }
@@ -357,6 +543,10 @@ bool XboxRasterRenderer::BeginAuthoredFrame() {
     // The probe pushes state and geometry together because it draws exactly
     // one mesh. An authored frame draws a variable number, and the state is
     // identical for all of them, so it is pushed once here instead.
+    spritePassActive_ = false;
+    spriteCount_ = 0;
+    if (!UploadVertexProgram(kVertexProgram, static_cast<unsigned>(sizeof(kVertexProgram) / 16))) return false;
+    PushUnlitCombiner();
     PushRenderState();
     return true;
 }
@@ -366,7 +556,7 @@ bool XboxRasterRenderer::DrawAuthored(const Matrix4& clip,
                                       unsigned vertexCount,
                                       const unsigned short* indices,
                                       unsigned indexCount) {
-    if (!initialized_) {
+    if (!initialized_ || spritePassActive_) {
         Diagnostics::Log("renderer error: DrawAuthored before Initialize");
         return false;
     }
@@ -383,6 +573,12 @@ bool XboxRasterRenderer::DrawAuthored(const Matrix4& clip,
 }
 
 void XboxRasterRenderer::Shutdown() {
+    spritePassActive_ = false;
+    if (gpuSpriteVertices_ != nullptr) {
+        MmFreeContiguousMemory(gpuSpriteVertices_);
+        gpuSpriteVertices_ = nullptr;
+        ++counters_.Releases;
+    }
     if (gpuVertices_ != nullptr) {
         MmFreeContiguousMemory(gpuVertices_);
         gpuVertices_ = nullptr;
