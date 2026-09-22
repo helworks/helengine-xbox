@@ -5,7 +5,7 @@ param(
     [string]$DockerImage = 'helengine-xbox-sdk:v01'
 )
 
-# Compiles the CPU-only geometry/math sources plus tests/native_contract_tests.cpp
+# Compiles the CPU-only geometry/math/texture sources plus tests/native_contract_tests.cpp
 # with the pinned container's host compiler (assertions forced on) and runs the
 # resulting host executable. No nxdk headers and no Xbox binary are involved.
 
@@ -42,6 +42,7 @@ $inner = 'set -e; ' +
     'g++ -std=c++17 -Wall -Wextra -Werror -UNDEBUG -I/src/src ' +
     '/src/tests/native_contract_tests.cpp /src/src/platform/xbox/XboxCubeMesh.cpp /src/src/platform/xbox/XboxMath.cpp ' +
     '/src/src/platform/xbox/XboxContentPath.cpp /src/src/platform/xbox/XboxAuthoredTransform.cpp ' +
+    '/src/src/platform/xbox/XboxTextureFormat.cpp ' +
     '-o /out/native_contract_tests; ' +
     '/out/native_contract_tests'
 $dockerArgs = @(

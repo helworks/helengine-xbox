@@ -14,6 +14,7 @@
 #include "platform/xbox/XboxContentPath.hpp"
 #include "platform/xbox/XboxCubeMesh.hpp"
 #include "platform/xbox/XboxMath.hpp"
+#include "platform/xbox/XboxTextureFormat.hpp"
 
 using helengine::xbox::CubeGeometry;
 using helengine::xbox::CubeVertex;
@@ -27,6 +28,12 @@ using helengine::xbox::Transform;
 using helengine::xbox::Translation;
 using helengine::xbox::TryPerspective;
 using helengine::xbox::Vector4;
+using helengine::xbox::DecodeTextureToRgba8;
+using helengine::xbox::XboxRgbaPixel;
+using helengine::xbox::XboxTextureAlphaPrecision;
+using helengine::xbox::XboxTextureColorFormat;
+using helengine::xbox::XboxTextureSourceView;
+using helengine::xbox::XboxTextureStatus;
 
 namespace {
 
@@ -368,12 +375,79 @@ bool TestCameraTransformValidation() {
     return true;
 }
 
+bool TestXboxTextureDecoding() {
+    XboxRgbaPixel output[4]{};
+    const std::uint8_t rgba[] = {0x12, 0x34, 0x56, 0x78};
+    XboxTextureSourceView source{1, 1, XboxTextureColorFormat::Rgba32, XboxTextureAlphaPrecision::A8,
+                                 rgba, sizeof(rgba), nullptr, 0};
+    CHECK(DecodeTextureToRgba8(source, output, 4) == XboxTextureStatus::Ok);
+    CHECK(output[0].R == 0x12 && output[0].G == 0x34 && output[0].B == 0x56 && output[0].A == 0x78);
+
+    const std::uint8_t rgba4444[] = {0x79, 0x3f};
+    source = {1, 1, XboxTextureColorFormat::Rgba4444, XboxTextureAlphaPrecision::A4,
+              rgba4444, sizeof(rgba4444), nullptr, 0};
+    CHECK(DecodeTextureToRgba8(source, output, 4) == XboxTextureStatus::Ok);
+    CHECK(output[0].R == 0x99 && output[0].G == 0x77 && output[0].B == 0xff && output[0].A == 0x33);
+
+    const std::uint8_t palette[] = {0x10, 0x20, 0x30, 0x40, 0xaa, 0xbb, 0xcc, 0xdd,
+                                    0x70, 0x80, 0x90, 0xa0, 0x50, 0x60, 0x70, 0x80};
+    const std::uint8_t index8[] = {1};
+    source = {1, 1, XboxTextureColorFormat::Indexed8, XboxTextureAlphaPrecision::A8,
+              index8, sizeof(index8), palette, sizeof(palette)};
+    CHECK(DecodeTextureToRgba8(source, output, 4) == XboxTextureStatus::Ok);
+    CHECK(output[0].R == 0xaa && output[0].G == 0xbb && output[0].B == 0xcc && output[0].A == 0xdd);
+
+    const std::uint8_t index4[] = {0x10, 0x03};
+    source = {3, 1, XboxTextureColorFormat::Indexed4, XboxTextureAlphaPrecision::Opaque,
+              index4, sizeof(index4), palette, sizeof(palette)};
+    CHECK(DecodeTextureToRgba8(source, output, 4) == XboxTextureStatus::Ok);
+    CHECK(output[0].R == 0x10 && output[0].A == 0xff);
+    CHECK(output[1].R == 0xaa && output[1].A == 0xff);
+    CHECK(output[2].R == 0x50 && output[2].A == 0xff);
+
+    const std::uint8_t alphaColors[] = {1, 2, 3, 127, 1, 2, 3, 128};
+    source = {2, 1, XboxTextureColorFormat::Rgba32, XboxTextureAlphaPrecision::Binary,
+              alphaColors, sizeof(alphaColors), nullptr, 0};
+    CHECK(DecodeTextureToRgba8(source, output, 4) == XboxTextureStatus::Ok);
+    CHECK(output[0].A == 0 && output[1].A == 0xff);
+    source.AlphaPrecision = XboxTextureAlphaPrecision::Opaque;
+    CHECK(DecodeTextureToRgba8(source, output, 4) == XboxTextureStatus::Ok);
+    CHECK(output[0].A == 0xff && output[1].A == 0xff);
+
+    XboxTextureSourceView invalid = source;
+    invalid.Width = 0;
+    CHECK(DecodeTextureToRgba8(invalid, output, 4) == XboxTextureStatus::InvalidExtent);
+    invalid = source;
+    invalid.Width = 0xffffffffu;
+    invalid.Height = 0xffffffffu;
+    CHECK(DecodeTextureToRgba8(invalid, output, 4) == XboxTextureStatus::SizeOverflow);
+    invalid = source;
+    invalid.ColorsLength = 7;
+    CHECK(DecodeTextureToRgba8(invalid, output, 4) == XboxTextureStatus::MalformedPayload);
+    invalid = source;
+    CHECK(DecodeTextureToRgba8(invalid, output, 1) == XboxTextureStatus::InsufficientOutput);
+    invalid = {1, 1, static_cast<XboxTextureColorFormat>(4), XboxTextureAlphaPrecision::A8,
+               rgba, sizeof(rgba), nullptr, 0};
+    CHECK(DecodeTextureToRgba8(invalid, output, 4) == XboxTextureStatus::UnsupportedFormat);
+
+    invalid = {3, 1, XboxTextureColorFormat::Indexed4, XboxTextureAlphaPrecision::A8,
+               index4, 1, palette, sizeof(palette)};
+    CHECK(DecodeTextureToRgba8(invalid, output, 4) == XboxTextureStatus::MalformedPayload);
+    const std::uint8_t badIndex[] = {4};
+    invalid = {1, 1, XboxTextureColorFormat::Indexed8, XboxTextureAlphaPrecision::A8,
+               badIndex, sizeof(badIndex), palette, sizeof(palette)};
+    CHECK(DecodeTextureToRgba8(invalid, output, 4) == XboxTextureStatus::InvalidPalette);
+    invalid.PaletteLength = 7;
+    CHECK(DecodeTextureToRgba8(invalid, output, 4) == XboxTextureStatus::InvalidPalette);
+    return true;
+}
+
 } // namespace
 
 int main() {
     const bool ok = TestCubeGeometry() && TestMath() && TestDefaultPoseIsInFrontOfCamera() &&
                     TestContentPathResolution() && TestGeneratedMatrixConversion() &&
-                    TestCameraTransformValidation();
+                    TestCameraTransformValidation() && TestXboxTextureDecoding();
     if (!ok) {
         std::fprintf(stderr, "native contract tests FAILED after %d checks\n", g_checks);
         return 1;
