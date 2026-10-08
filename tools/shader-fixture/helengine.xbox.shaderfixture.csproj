@@ -1,0 +1,12 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <TargetFramework>net9.0</TargetFramework>
+    <OutputType>Exe</OutputType>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>disable</Nullable>
+  </PropertyGroup>
+  <ItemGroup>
+    <ProjectReference Include="../../../helengine/engine/helengine.editor/helengine.editor.csproj" />
+    <ProjectReference Include="../../../helengine/engine/helengine.editor.windows.gdiimporter/helengine.editor.windows.gdiimporter.csproj" />
+  </ItemGroup>
+</Project>

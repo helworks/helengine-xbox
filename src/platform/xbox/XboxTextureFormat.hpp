@@ -19,6 +19,12 @@ enum class XboxTextureAlphaPrecision : std::uint8_t {
     A8 = 3,
 };
 
+// Engine-generated inline font atlases may have no asset identity and retain
+// Opaque as the default metadata even though their RGBA pixels carry glyph
+// coverage in alpha. Preserve that channel only for this anonymous RGBA case.
+bool ShouldPreserveAnonymousRgbaAlpha(bool hasStableIdentity, XboxTextureColorFormat colorFormat,
+                                      XboxTextureAlphaPrecision alphaPrecision) noexcept;
+
 struct XboxTextureSourceView {
     std::uint32_t Width;
     std::uint32_t Height;
@@ -36,6 +42,10 @@ struct XboxRgbaPixel {
     std::uint8_t B;
     std::uint8_t A;
 };
+
+// Keep zero-alpha font-atlas texels white so linear filtering does not darken
+// the sampled RGB before the coverage alpha is applied by sprite blending.
+void SetTransparentFontAtlasTexelsToWhite(XboxRgbaPixel* pixels, std::size_t pixelCount) noexcept;
 
 enum class XboxTextureStatus : std::uint8_t {
     Ok,

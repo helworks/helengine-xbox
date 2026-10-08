@@ -41,6 +41,9 @@ CubeGeometry MakeCubeGeometry() {
             for (unsigned channel = 0; channel < 4; ++channel) {
                 vertex.Color[channel] = f.Color[channel];
             }
+            for (unsigned axis = 0; axis < 3; ++axis) {
+                vertex.Normal[axis] = f.Normal[axis];
+            }
         }
         for (unsigned i = 0; i < 6; ++i) {
             geometry.Indices[face * 6 + i] = static_cast<unsigned short>(face * 4 + kFaceIndices[i]);

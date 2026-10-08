@@ -43,7 +43,16 @@ XboxRuntimeTexture::~XboxRuntimeTexture() {
 XboxRuntimeTexture* XboxRuntimeTexture::Create(const ::TextureAsset& asset, const char*& reason) {
     reason = nullptr;
     const XboxTextureColorFormat colorFormat = static_cast<XboxTextureColorFormat>(asset.ColorFormat);
-    const XboxTextureAlphaPrecision alphaPrecision = static_cast<XboxTextureAlphaPrecision>(asset.AlphaPrecision);
+    XboxTextureAlphaPrecision alphaPrecision = static_cast<XboxTextureAlphaPrecision>(asset.AlphaPrecision);
+    const bool hasStableIdentity = !asset.Id.empty() || asset.RuntimeAssetId != 0 || !asset.AuthoringAssetId.empty();
+    const bool isAnonymousFontCoverage =
+        ShouldPreserveAnonymousRgbaAlpha(hasStableIdentity, colorFormat, alphaPrecision);
+    if (isAnonymousFontCoverage) {
+        // FontAssetBinarySerializer supplies the engine's generated default
+        // font atlas as an anonymous RGBA texture. Its Opaque value is only
+        // the TextureAsset default; alpha contains the glyph coverage mask.
+        alphaPrecision = XboxTextureAlphaPrecision::A8;
+    }
     const std::uint8_t* colors = asset.Colors != nullptr ? asset.Colors->Data : nullptr;
     const std::size_t colorsLength = asset.Colors != nullptr && asset.Colors->Length > 0
                                          ? static_cast<std::size_t>(asset.Colors->Length)
@@ -74,25 +83,16 @@ XboxRuntimeTexture* XboxRuntimeTexture::Create(const ::TextureAsset& asset, cons
         delete[] decoded;
         return nullptr;
     }
-
-    std::uint8_t* uploadBytes = new (std::nothrow) std::uint8_t[layout.ByteCount];
-    if (uploadBytes == nullptr) {
-        reason = "texture CPU upload allocation failed";
-        delete[] decoded;
-        return nullptr;
-    }
-    status = ConvertTextureToNv2a(source, decoded, layout, uploadBytes, layout.ByteCount);
-    delete[] decoded;
-    if (status != XboxTextureStatus::Ok) {
-        reason = TextureStatusReason(status, colorFormat);
-        delete[] uploadBytes;
-        return nullptr;
+    if (isAnonymousFontCoverage) {
+        // The NV2A linearly filters this atlas. White RGB in transparent texels
+        // prevents coverage from darkening RGB before SRC_ALPHA blending.
+        SetTransparentFontAtlasTexelsToWhite(decoded, pixelCount);
     }
 
     XboxRuntimeTexture* texture = new (std::nothrow) XboxRuntimeTexture();
     if (texture == nullptr) {
         reason = "runtime texture allocation failed";
-        delete[] uploadBytes;
+        delete[] decoded;
         return nullptr;
     }
     texture->gpuMemory_ = MmAllocateContiguousMemoryEx(static_cast<SIZE_T>(layout.ByteCount), 0,
@@ -100,12 +100,21 @@ XboxRuntimeTexture* XboxRuntimeTexture::Create(const ::TextureAsset& asset, cons
                                                        PAGE_READWRITE | PAGE_WRITECOMBINE);
     if (texture->gpuMemory_ == nullptr) {
         reason = "NV2A contiguous texture allocation failed";
-        delete[] uploadBytes;
+        delete[] decoded;
         delete texture;
         return nullptr;
     }
-    std::memcpy(texture->gpuMemory_, uploadBytes, layout.ByteCount);
-    delete[] uploadBytes;
+    // Populate the GPU allocation directly. A full-size background must not
+    // require an additional texture-sized upload buffer alongside its cooked
+    // payload, decoded pixels and contiguous GPU storage.
+    status = ConvertTextureToNv2a(source, decoded, layout,
+        static_cast<std::uint8_t*>(texture->gpuMemory_), layout.ByteCount);
+    delete[] decoded;
+    if (status != XboxTextureStatus::Ok) {
+        reason = TextureStatusReason(status, colorFormat);
+        delete texture;
+        return nullptr;
+    }
 
     texture->layout_ = layout;
     texture->gpuOffset_ = static_cast<std::uint32_t>(reinterpret_cast<std::uintptr_t>(texture->gpuMemory_) & kGpuAddressMask);

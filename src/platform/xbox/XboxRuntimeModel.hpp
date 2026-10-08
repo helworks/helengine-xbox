@@ -16,6 +16,7 @@
 // no file context of its own.
 
 #include "XboxCubeMesh.hpp"
+#include "XboxMath.hpp"
 
 #include "ModelAsset.hpp"
 #include "RuntimeModel.hpp"
@@ -38,26 +39,29 @@ public:
 
     void Dispose() override;
 
-    // Rewrites every vertex colour when it differs from the cached value.
-    // Write-combined memory is written, never read, so the comparison is
-    // against the cached copy rather than against the buffer.
+    // Writes lit material colour from source normals and the current world
+    // transform. GPU-visible memory is write-combined and is never read back.
+    bool ApplyDirectionalLighting(float r, float g, float b, float a, const Matrix4& worldFromModel,
+                                 const float lightDirection[3], const float lightColor[3], float intensity);
+
     void EnsureColor(float r, float g, float b, float a);
 
     const CubeVertex* GpuVertices() const { return gpuVertices_; }
     unsigned VertexCount() const { return vertexCount_; }
     const unsigned short* Indices() const { return indices_; }
     unsigned IndexCount() const { return indexCount_; }
+    bool HasTextureCoordinates() const { return hasTextureCoordinates_; }
 
 private:
     XboxRuntimeModel();
 
     CubeVertex* gpuVertices_ = nullptr; // write-combined; never read back
+    float* normals_ = nullptr; // ordinary memory; source normals used for per-frame lighting
     unsigned short* indices_ = nullptr; // ordinary memory
     unsigned vertexCount_ = 0;
     unsigned indexCount_ = 0;
-    float color_[4] = {1.0f, 1.0f, 1.0f, 1.0f};
-    bool colorWritten_ = false;
     bool disposed_ = false;
+    bool hasTextureCoordinates_ = false;
 };
 
 } // namespace helengine::xbox

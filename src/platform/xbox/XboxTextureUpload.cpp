@@ -26,6 +26,15 @@ XboxTextureStatus BuildXboxTextureLayout(std::uint32_t width, std::uint32_t heig
     return XboxTextureStatus::Ok;
 }
 
+std::uint32_t GetXboxTextureRowPitchBytes(const XboxTextureLayout& layout) noexcept {
+    if (layout.RealWidth == 0 || layout.BytesPerTexel == 0 ||
+        layout.RealWidth > std::numeric_limits<std::uint32_t>::max() / layout.BytesPerTexel) {
+        return 0;
+    }
+    const std::uint32_t pitch = layout.RealWidth * layout.BytesPerTexel;
+    return pitch <= kMaxLinearPitchBytes ? pitch : 0;
+}
+
 XboxTextureStatus ConvertTextureToNv2a(const XboxTextureSourceView& source, const XboxRgbaPixel* decodedPixels,
                                        const XboxTextureLayout& layout, std::uint8_t* output,
                                        std::size_t outputCapacity) noexcept {

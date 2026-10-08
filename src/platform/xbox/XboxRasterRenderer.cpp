@@ -2,6 +2,10 @@
 
 #include "XboxDiagnostics.hpp"
 #include "XboxRuntimeTexture.hpp"
+#include "XboxShaderProgram.hpp"
+#include "XboxShaderConstants.hpp"
+#include "XboxShaderMaterial.hpp"
+#include "XboxShaderTextureBinding.hpp"
 
 #include <cstddef>
 #include <cstdint>
@@ -25,7 +29,8 @@ namespace {
 
 // Vertex layout shared by the cube and the triangle probe. Float colour avoids
 // packed-colour byte-order ambiguity in this first probe.
-static_assert(sizeof(CubeVertex) == 28, "CubeVertex must be 28 bytes (3 + 4 floats)");
+static_assert(sizeof(CubeVertex) == 48, "CubeVertex must be 48 bytes (3 + 4 + 3 + 2 floats)");
+static_assert(offsetof(CubeVertex, TexCoord) == 40, "Normalized UV must follow the normal");
 static_assert(offsetof(CubeVertex, Position) == 0, "Position must be at offset 0");
 static_assert(offsetof(CubeVertex, Color) == 12, "Color must be at offset 12");
 static_assert(sizeof(float) == 4, "float must be 32-bit");
@@ -104,9 +109,9 @@ const unsigned short kSpriteIndices[6] = {0, 1, 2, 0, 2, 3};
 // Single triangle for the Triangle probe: counter-clockwise from the camera,
 // red/green/blue corners, drawn through the same indexed path as the cube.
 const CubeVertex kTriangleVertices[3] = {
-    {{-1.0f, -1.0f, 0.0f}, {1.0f, 0.0f, 0.0f, 1.0f}},
-    {{1.0f, -1.0f, 0.0f}, {0.0f, 1.0f, 0.0f, 1.0f}},
-    {{0.0f, 1.0f, 0.0f}, {0.0f, 0.0f, 1.0f, 1.0f}},
+    {{-1.0f, -1.0f, 0.0f}, {1.0f, 0.0f, 0.0f, 1.0f}, {0.0f, 0.0f, 1.0f}, {0.0f, 0.0f}},
+    {{1.0f, -1.0f, 0.0f}, {0.0f, 1.0f, 0.0f, 1.0f}, {0.0f, 0.0f, 1.0f}, {0.0f, 0.0f}},
+    {{0.0f, 1.0f, 0.0f}, {0.0f, 0.0f, 1.0f, 1.0f}, {0.0f, 0.0f, 1.0f}, {0.0f, 0.0f}},
 };
 
 const char* PoseName(int pose) {
@@ -119,7 +124,71 @@ const char* PoseName(int pose) {
     return "Unknown";
 }
 
+// Called only after XboxShaderProgram validates both owned artifact buffers.
+void PushCompiledInstruction(void*, unsigned index, const uint32_t* instruction) {
+    uint32_t* p = pb_begin();
+    if (index == 0) {
+        p = pb_push1(p, NV097_SET_TRANSFORM_PROGRAM_START, 0);
+        p = pb_push1(p, NV097_SET_TRANSFORM_EXECUTION_MODE,
+            MaskValue(NV097_SET_TRANSFORM_EXECUTION_MODE_MODE, NV097_SET_TRANSFORM_EXECUTION_MODE_MODE_PROGRAM) |
+            MaskValue(NV097_SET_TRANSFORM_EXECUTION_MODE_RANGE_MODE, NV097_SET_TRANSFORM_EXECUTION_MODE_RANGE_MODE_PRIV));
+        p = pb_push1(p, NV097_SET_TRANSFORM_PROGRAM_CXT_WRITE_EN, 0);
+        p = pb_push1(p, NV097_SET_TRANSFORM_PROGRAM_LOAD, 0);
+    }
+    pb_push(p++, NV097_SET_TRANSFORM_PROGRAM, 4);
+    std::memcpy(p, instruction, 16);
+    p += 4;
+    pb_end(p);
+}
+
+void PushCompiledRegister(void*, uint32_t method, uint32_t value) {
+    uint32_t* p = pb_begin();
+    p = pb_push1(p, method, value);
+    pb_end(p);
+}
+
+#include "XboxShaderConstantUpload.inl"
+
+#if defined(HELENGINE_XBOX_HAS_GENERATED_CORE)
+void PushBatchConstants(void* context, const float (*constants)[4]) {
+    const unsigned* origin = static_cast<const unsigned*>(context);
+    float adjusted[96][4];
+    std::memcpy(adjusted, constants, sizeof(adjusted));
+    adjusted[XboxViewportOffsetConstant][0] += origin[0];
+    adjusted[XboxViewportOffsetConstant][1] += origin[1];
+    PushCompiledConstants(nullptr, adjusted);
+}
+#endif
+
 } // namespace
+
+bool XboxRasterRenderer::BindCompiledMaterial(const XboxShaderMaterial& material, const Matrix4& clip,
+                                             unsigned textureWidth, unsigned textureHeight) {
+    if (!initialized_) return false;
+    const char* reason = nullptr;
+    if (!material.Bind(clip, static_cast<unsigned>(viewportScale_[0] * 2), static_cast<unsigned>(-viewportScale_[1] * 2),
+            textureWidth, textureHeight, PushCompiledInstruction, PushCompiledRegister, PushCompiledConstants, nullptr, reason)) {
+        Diagnostics::Log("compiled material rejected: %s", reason);
+        return false;
+    }
+    return true;
+}
+
+bool XboxRasterRenderer::BindCompiledShader(const XboxShaderProgram& program, const Matrix4& clip, int matrixRegister,
+                                           unsigned textureWidth, unsigned textureHeight) {
+    if (!initialized_) return false;
+    float constants[XboxShaderConstantCount][4];
+    if (!BuildShaderDrawConstants(clip, matrixRegister, static_cast<unsigned>(viewportScale_[0] * 2),
+            static_cast<unsigned>(-viewportScale_[1] * 2), textureWidth, textureHeight, constants)) return false;
+    const char* reason = nullptr;
+    if (!program.ApplyVertexLiterals(constants, reason)) return false;
+    if (!program.Bind(PushCompiledInstruction, PushCompiledRegister, nullptr, reason)) {
+        Diagnostics::Log("compiled shader rejected: %s", reason);
+        return false;
+    }
+    PushCompiledConstants(nullptr, constants);
+    return true;
+}
 
 bool XboxRasterRenderer::Initialize(unsigned width, unsigned height) {
     if (initialized_) {
@@ -166,7 +235,8 @@ bool XboxRasterRenderer::Initialize(unsigned width, unsigned height) {
     std::memcpy(gpuVertices_ + triangleFirstVertex_, kTriangleVertices, sizeof(kTriangleVertices));
 
 #if defined(HELENGINE_XBOX_HAS_GENERATED_CORE)
-    const SIZE_T spriteBytes = static_cast<SIZE_T>(kSpriteVertexCount) * sizeof(XboxSpriteVertex);
+    // The shader path copies the shared six-float4 vertex; legacy sprites use a prefix of this allocation.
+    const SIZE_T spriteBytes = static_cast<SIZE_T>(kSpriteVertexCount) * 96;
     gpuSpriteVertices_ = static_cast<XboxSpriteVertex*>(MmAllocateContiguousMemoryEx(
         spriteBytes, 0, kGpuHighestAddress, 0, PAGE_READWRITE | PAGE_WRITECOMBINE));
     if (gpuSpriteVertices_ == nullptr) {
@@ -286,6 +356,13 @@ void XboxRasterRenderer::PushSpriteCombiner() {
 
 void XboxRasterRenderer::PushRenderState() {
     uint32_t* p = pb_begin();
+    p = pb_push1(p, NV097_SET_WINDOW_CLIP_TYPE, 0);
+    for (unsigned clip = 0; clip < 8; ++clip) {
+        p = pb_push1(p, NV097_SET_WINDOW_CLIP_HORIZONTAL + clip * 4, (Width() - 1) << 16);
+        p = pb_push1(p, NV097_SET_WINDOW_CLIP_VERTICAL + clip * 4, (Height() - 1) << 16);
+    }
+    pb_end(p);
+    p = pb_begin();
     p = pb_push1(p, NV097_SET_LIGHTING_ENABLE, 0);
     p = pb_push1(p, NV097_SET_SPECULAR_ENABLE, 0);
     p = pb_push1(p, NV097_SET_FOG_ENABLE, 0);
@@ -402,6 +479,54 @@ bool XboxRasterRenderer::BeginSpritePass() {
 #endif
 }
 
+bool XboxRasterRenderer::DrawCompiledBatch(const XboxBatch2DSubmission& batch, const XboxShaderMaterial& material,
+    const Matrix4& projection, const XboxRuntimeTexture& texture,
+    unsigned viewportX, unsigned viewportY, unsigned viewportWidth, unsigned viewportHeight) {
+#if !defined(HELENGINE_XBOX_HAS_GENERATED_CORE)
+    (void)batch; (void)material; (void)projection; (void)texture;
+    (void)viewportX; (void)viewportY; (void)viewportWidth; (void)viewportHeight;
+    return false;
+#else
+    if (!initialized_ || !spritePassActive_ || !gpuSpriteVertices_ || texture.IsDisposedNative() ||
+        spriteCount_ > kMaxSpriteQuadsPerFrame || viewportWidth == 0 || viewportHeight == 0 ||
+        uint64_t(viewportX) + viewportWidth > Width() || uint64_t(viewportY) + viewportHeight > Height() ||
+        !ValidateBatch2DSubmission(batch, Width(), Height(), (kMaxSpriteQuadsPerFrame - spriteCount_) * 4)) return false;
+    unsigned origin[] = {viewportX, viewportY};
+    const char* reason = nullptr;
+    if (!BindShaderMaterialTexture(material, projection, viewportWidth, viewportHeight, &texture.Layout(), texture.GpuOffset(),
+            PushCompiledInstruction, PushCompiledRegister, PushBatchConstants, origin, reason)) {
+        Diagnostics::Log("batch shader rejected: %s", reason);
+        return false;
+    }
+    auto* vertices = reinterpret_cast<uint8_t*>(gpuSpriteVertices_) + spriteCount_ * 4 * 96;
+    std::memcpy(vertices, batch.Vertices, batch.VertexCount * 96);
+    uint32_t* p = pb_begin();
+    p = pb_push1(p, NV097_SET_WINDOW_CLIP_TYPE, 0);
+    const uint32_t horizontal = uint32_t(batch.ScissorX) | (uint32_t(batch.ScissorX + batch.ScissorWidth - 1) << 16);
+    const uint32_t vertical = uint32_t(batch.ScissorY) | (uint32_t(batch.ScissorY + batch.ScissorHeight - 1) << 16);
+    for (unsigned clip = 0; clip < 8; ++clip) {
+        p = pb_push1(p, NV097_SET_WINDOW_CLIP_HORIZONTAL + clip * 4, horizontal);
+        p = pb_push1(p, NV097_SET_WINDOW_CLIP_VERTICAL + clip * 4, vertical);
+    }
+    pb_push(p++, NV097_SET_VERTEX_DATA_ARRAY_FORMAT, kAttributeCount);
+    for (unsigned attribute = 0; attribute < kAttributeCount; ++attribute) *(p++) = NV097_SET_VERTEX_DATA_ARRAY_FORMAT_TYPE_F;
+    const unsigned attributes[] = {0, 9, 3};
+    const unsigned offsets[] = {0, 16, 32};
+    for (unsigned attribute = 0; attribute < 3; ++attribute) {
+        p = pb_push1(p, NV097_SET_VERTEX_DATA_ARRAY_FORMAT + attributes[attribute] * 4,
+            MaskValue(NV097_SET_VERTEX_DATA_ARRAY_FORMAT_TYPE, NV097_SET_VERTEX_DATA_ARRAY_FORMAT_TYPE_F) |
+            MaskValue(NV097_SET_VERTEX_DATA_ARRAY_FORMAT_SIZE, 4) |
+            MaskValue(NV097_SET_VERTEX_DATA_ARRAY_FORMAT_STRIDE, 96));
+        p = pb_push1(p, NV097_SET_VERTEX_DATA_ARRAY_OFFSET + attributes[attribute] * 4,
+            static_cast<uint32_t>(reinterpret_cast<uintptr_t>(vertices + offsets[attribute])) & kGpuAddressMask);
+    }
+    pb_end(p);
+    PushIndexedTriangles(batch.Indices, batch.IndexCount);
+    spriteCount_ += batch.VertexCount / 4;
+    return true;
+#endif
+}
+
 bool XboxRasterRenderer::DrawSprite(const XboxSpriteQuad& quad, const XboxRuntimeTexture& texture) {
 #if !defined(HELENGINE_XBOX_HAS_GENERATED_CORE)
     (void)quad;
@@ -413,10 +538,11 @@ bool XboxRasterRenderer::DrawSprite(const XboxSpriteQuad& quad, const XboxRuntim
         return false;
     }
     const XboxTextureLayout& layout = texture.Layout();
+    const std::uint32_t rowPitchBytes = GetXboxTextureRowPitchBytes(layout);
     if (texture.IsDisposedNative() || texture.GpuOffset() == 0 || layout.RealWidth == 0 ||
         layout.RealHeight == 0 || layout.StorageWidth != layout.RealWidth ||
         layout.StorageHeight != layout.RealHeight || layout.BytesPerTexel != 4 ||
-        layout.HardwareFormat != kNvTextureFormatLinearA8R8G8B8) {
+        layout.HardwareFormat != kNvTextureFormatLinearA8R8G8B8 || rowPitchBytes == 0) {
         return false;
     }
     if (spriteCount_ >= kMaxSpriteQuadsPerFrame) {
@@ -430,7 +556,7 @@ bool XboxRasterRenderer::DrawSprite(const XboxSpriteQuad& quad, const XboxRuntim
     std::memcpy(vertices, quad.Vertices, sizeof(quad.Vertices));
     uint32_t* p = pb_begin();
     p = pb_push1(p, NV097_SET_TEXTURE_OFFSET, texture.GpuOffset());
-    p = pb_push1(p, NV097_SET_TEXTURE_CONTROL1, layout.RealWidth << 16);
+    p = pb_push1(p, NV097_SET_TEXTURE_CONTROL1, rowPitchBytes << 16);
     p = pb_push1(p, NV097_SET_TEXTURE_IMAGE_RECT,
                  ((layout.RealWidth & 0xffffu) << 16) | (layout.RealHeight & 0xffffu));
     pb_end(p);
@@ -459,6 +585,7 @@ void XboxRasterRenderer::PushVertexAttributes(const CubeVertex* vertices) {
     const uintptr_t base = reinterpret_cast<uintptr_t>(vertices);
     const uint32_t positionAddress = static_cast<uint32_t>(base + offsetof(CubeVertex, Position)) & kGpuAddressMask;
     const uint32_t colorAddress = static_cast<uint32_t>(base + offsetof(CubeVertex, Color)) & kGpuAddressMask;
+    const uint32_t textureAddress = static_cast<uint32_t>(base + offsetof(CubeVertex, TexCoord)) & kGpuAddressMask;
     const uint32_t stride = static_cast<uint32_t>(sizeof(CubeVertex));
 
     uint32_t* p = pb_begin();
@@ -477,6 +604,12 @@ void XboxRasterRenderer::PushVertexAttributes(const CubeVertex* vertices) {
                      MaskValue(NV097_SET_VERTEX_DATA_ARRAY_FORMAT_SIZE, 4) |
                      MaskValue(NV097_SET_VERTEX_DATA_ARRAY_FORMAT_STRIDE, stride));
     p = pb_push1(p, NV097_SET_VERTEX_DATA_ARRAY_OFFSET + kColorAttribute * 4, colorAddress);
+    // Pinned vp20compiler maps NV_vertex_program v[8] TEX0 to NV2A attribute 9.
+    p = pb_push1(p, NV097_SET_VERTEX_DATA_ARRAY_FORMAT + kTextureCoordinateAttribute * 4,
+                 MaskValue(NV097_SET_VERTEX_DATA_ARRAY_FORMAT_TYPE, NV097_SET_VERTEX_DATA_ARRAY_FORMAT_TYPE_F) |
+                     MaskValue(NV097_SET_VERTEX_DATA_ARRAY_FORMAT_SIZE, 2) |
+                     MaskValue(NV097_SET_VERTEX_DATA_ARRAY_FORMAT_STRIDE, stride));
+    p = pb_push1(p, NV097_SET_VERTEX_DATA_ARRAY_OFFSET + kTextureCoordinateAttribute * 4, textureAddress);
     pb_end(p);
 }
 
@@ -555,7 +688,9 @@ bool XboxRasterRenderer::DrawAuthored(const Matrix4& clip,
                                       const CubeVertex* gpuVertices,
                                       unsigned vertexCount,
                                       const unsigned short* indices,
-                                      unsigned indexCount) {
+                                      unsigned indexCount,
+                                      const XboxShaderMaterial* material,
+                                      const XboxRuntimeTexture* texture) {
     if (!initialized_ || spritePassActive_) {
         Diagnostics::Log("renderer error: DrawAuthored before Initialize");
         return false;
@@ -566,7 +701,30 @@ bool XboxRasterRenderer::DrawAuthored(const Matrix4& clip,
                          vertexCount, indexCount);
         return false;
     }
-    PushConstants(clip);
+    if (material != nullptr) {
+#if defined(HELENGINE_XBOX_HAS_GENERATED_CORE)
+        if (texture != nullptr && texture->IsDisposedNative()) return false;
+        const char* reason = nullptr;
+        if (!BindShaderMaterialTexture(*material, clip, static_cast<unsigned>(viewportScale_[0] * 2),
+                static_cast<unsigned>(-viewportScale_[1] * 2), texture == nullptr ? nullptr : &texture->Layout(),
+                texture == nullptr ? 0 : texture->GpuOffset(), PushCompiledInstruction, PushCompiledRegister,
+                PushCompiledConstants, nullptr, reason)) {
+            Diagnostics::Log("compiled textured material rejected: %s", reason == nullptr ? "invalid binding" : reason);
+            return false;
+        }
+#else
+        if (texture != nullptr) return false;
+        if (!BindCompiledMaterial(*material, clip, 1, 1)) return false;
+#endif
+    } else {
+        if (texture != nullptr) return false;
+#if defined(HELENGINE_XBOX_HAS_GENERATED_CORE)
+        if (!BindTextureStage(nullptr, 0, PushCompiledRegister, nullptr)) return false;
+#endif
+        if (!UploadVertexProgram(kVertexProgram, static_cast<unsigned>(sizeof(kVertexProgram) / 16))) return false;
+        PushUnlitCombiner();
+        PushConstants(clip);
+    }
     PushVertexAttributes(gpuVertices);
     PushIndexedTriangles(indices, indexCount);
     return true;

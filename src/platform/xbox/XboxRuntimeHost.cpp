@@ -19,14 +19,73 @@
 #include "RuntimeSceneCatalogEntry.hpp"
 #include "SceneLoadMode.hpp"
 #include "SceneManager.hpp"
+#include "ObjectManager.hpp"
+#include "Entity.hpp"
+#include "TextComponent.hpp"
+#include "FontAsset.hpp"
+#include "TextLayoutAlignmentUtils.hpp"
 #include "runtime/array.hpp"
+#include "runtime/native_list.hpp"
+#include "system/math.hpp"
 #include "runtime/runtime_scene_catalog_manifest.hpp"
 #include "runtime/runtime_startup_manifest.hpp"
 
 #include <windows.h>
 
 namespace helengine::xbox {
+
+// Host-visible, bounded samples from the same geometry and snapping used by
+// Batch2DTextEmitter. Captured once after viewport layout and title updates;
+// the entities retain ownership of every component inspected here.
+struct TitleRightSample {
+    float FontScale;
+    float OutlineScale;
+    float RightEffect;
+    float BoxWidth;
+    float WorldX;
+    float LocalX;
+    float ParentAnchor;
+    float VisibleWidth;
+    float LineOffset;
+    float SnappedBase;
+    float PaintedRight;
+    float Margin;
+    uint32_t Alignment;
+};
+
+TitleRightSample g_titleRightSamples[2]{};
+uint32_t g_titleRightSampleMask = 0;
+
 namespace {
+
+void CaptureTitleRightSamples(::Core* core) {
+    auto* entities = core->get_ObjectManager()->get_Entities();
+    for (int32_t entityIndex = 0; entities != nullptr && entityIndex < entities->get_Count(); ++entityIndex) {
+        auto* entity = entities->get_Item(entityIndex);
+        auto* components = entity == nullptr ? nullptr : entity->get_Components();
+        for (int32_t componentIndex = 0; components != nullptr && componentIndex < components->get_Count(); ++componentIndex) {
+            auto* text = dynamic_cast<::TextComponent*>(components->get_Item(componentIndex));
+            const uint32_t titleBit = text == nullptr ? 0 : text->get_Text() == "HELENGINE" ? 1 : text->get_Text() == "DEMO DISC" ? 2 : 0;
+            if (titleBit == 0 || (g_titleRightSampleMask & titleBit) != 0 || text->get_Font() == nullptr || entity->get_Parent() == nullptr) {
+                continue;
+            }
+            const auto position = entity->get_Position();
+            const auto shadow = text->get_ShadowOffset();
+            const auto size = text->get_Size();
+            const double width = ::TextLayoutAlignmentUtils::MeasureVisibleLineWidth(text->get_Text(), text->get_Font(), text->get_FontScale(), text->get_Font()->get_AtlasWidth());
+            const double effect = Math::Max(static_cast<double>(text->get_OutlineScale()), Math::Max(0.0, static_cast<double>(shadow.X)));
+            const double lineOffset = ::TextLayoutAlignmentUtils::ResolveHorizontalOffset(text->get_Alignment(), size.X, width);
+            const double snappedBase = Math::Round(position.X);
+            const double paintedRight = snappedBase + lineOffset + width + effect;
+            const double parentAnchor = entity->get_Parent()->get_Position().X;
+            auto& sample = g_titleRightSamples[titleBit == 1 ? 0 : 1];
+            sample = {text->get_FontScale(), text->get_OutlineScale(), static_cast<float>(effect), static_cast<float>(size.X), position.X, entity->get_LocalPosition().X,
+                      static_cast<float>(parentAnchor), static_cast<float>(width), static_cast<float>(lineOffset), static_cast<float>(snappedBase),
+                      static_cast<float>(paintedRight), static_cast<float>(parentAnchor - paintedRight), static_cast<uint32_t>(text->get_Alignment())};
+            g_titleRightSampleMask |= titleBit;
+        }
+    }
+}
 
 // Same background the diagnostic probe clears to, kept so a frame that renders
 // nothing is visibly the same "nothing" as before rather than a new colour to
@@ -179,7 +238,7 @@ int RunAuthoredScene(unsigned stopAfterFrames, RuntimeResult& result) {
     render3D.AddWindow(0, static_cast<int32_t>(video.Width()), static_cast<int32_t>(video.Height()));
     render3D.SetViewport(video.Width(), video.Height());
     render3D.InstallRenderer(&renderer);
-    render2D.InstallRenderer(&renderer);
+    render2D.InstallRenderer(&renderer, &content);
 
     // Owned by Core once handed over; Core's Dispose releases them.
     ::CoreInitializationOptions* options = new ::CoreInitializationOptions();
@@ -220,7 +279,6 @@ int RunAuthoredScene(unsigned stopAfterFrames, RuntimeResult& result) {
     QueryPerformanceFrequency(&frequency);
     QueryPerformanceCounter(&previous);
 
-    char overlay[64];
     bool running = true;
     while (running) {
         LARGE_INTEGER now{};
@@ -229,6 +287,9 @@ int RunAuthoredScene(unsigned stopAfterFrames, RuntimeResult& result) {
         previous = now;
 
         core->Update(elapsed);
+        if (result.Frames >= 3 && g_titleRightSampleMask != 3) {
+            CaptureTitleRightSamples(core);
+        }
 
         if (!video.BeginFrame(kClearColorArgb)) {
             result.Reason = "begin frame failed";
@@ -237,9 +298,6 @@ int RunAuthoredScene(unsigned stopAfterFrames, RuntimeResult& result) {
         core->Draw();
         render2D.Draw();
         const AuthoredFrameCounts& counts = render3D.LastFrame();
-        std::snprintf(overlay, sizeof(overlay), "helengine-xbox authored cam %u draw %u tri %u",
-                      counts.Cameras, counts.Submitted, counts.Triangles);
-        video.PrintOverlay(overlay);
         if (!video.EndFrame()) {
             result.Reason = "end frame failed";
             return 1;

@@ -7,5 +7,5 @@ public interface IXboxNativeBuildExecutor {
     /// <param name="stagedContentRootPath">Staged content tree packaged onto the disc image.</param>
     /// <param name="outputRootPath">Directory receiving the built image.</param>
     /// <param name="cancellationToken">Cancels a long-running native build.</param>
-    void Build(string generatedCoreCppRootPath, string stagedContentRootPath, string outputRootPath, CancellationToken cancellationToken);
+    void Build(string generatedCoreCppRootPath, string stagedContentRootPath, string outputRootPath, string nativeObjectCacheRootPath, CancellationToken cancellationToken);
 }

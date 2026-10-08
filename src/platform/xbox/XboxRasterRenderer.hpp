@@ -8,10 +8,13 @@
 #include "XboxCubeMesh.hpp"
 #include "XboxMath.hpp"
 #include "XboxSpriteGeometry.hpp"
+#include "XboxBatch2DSubmission.hpp"
 
 namespace helengine::xbox {
 
 class XboxRuntimeTexture;
+class XboxShaderProgram;
+class XboxShaderMaterial;
 
 struct RendererCounters {
     unsigned Allocations = 0; // GPU-visible allocations performed
@@ -31,6 +34,14 @@ public:
     // and XboxVideo::EndFrame. Performs no allocation.
     bool Draw(ProbeMode mode);
 
+    // Explicit compiled-program path; does not select a fallback on failure.
+    // The matrix register comes from the validated shader binding layout.
+    bool BindCompiledShader(const XboxShaderProgram& program, const Matrix4& clip, int matrixRegister,
+                            unsigned textureWidth, unsigned textureHeight);
+    // Uses per-material values and compiler-resolved rows; no assumed matrix register.
+    bool BindCompiledMaterial(const XboxShaderMaterial& material, const Matrix4& clip,
+                              unsigned textureWidth, unsigned textureHeight);
+
     // Pushes the shared unlit render state once per authored frame. The
     // authored path draws a variable number of meshes, so state is separated
     // from submission rather than pushed per draw as the probe does.
@@ -44,11 +55,18 @@ public:
                       const CubeVertex* gpuVertices,
                       unsigned vertexCount,
                       const unsigned short* indices,
-                      unsigned indexCount);
+                      unsigned indexCount,
+                      const XboxShaderMaterial* material = nullptr,
+                      const XboxRuntimeTexture* texture = nullptr);
 
     // Begins the ordered 2D overlay pass after Core's 3D draws.
     bool BeginSpritePass();
     bool DrawSprite(const XboxSpriteQuad& quad, const XboxRuntimeTexture& texture);
+    bool DrawCompiledBatch(const XboxBatch2DSubmission& batch, const XboxShaderMaterial& material,
+                           const Matrix4& projection, const XboxRuntimeTexture& texture,
+                           unsigned viewportX, unsigned viewportY, unsigned viewportWidth, unsigned viewportHeight);
+    unsigned Width() const { return static_cast<unsigned>(viewportScale_[0] * 2); }
+    unsigned Height() const { return static_cast<unsigned>(-viewportScale_[1] * 2); }
 
     // Releases GPU-visible storage. Call only after the GPU has been drained.
     void Shutdown();

@@ -40,8 +40,11 @@ XboxSpriteStatus TryBuildXboxSpriteQuad(const XboxSpriteInput& input, XboxSprite
                               input.SourceX + input.SourceWidth, input.SourceX};
     const float sourceV[4] = {input.SourceY, input.SourceY,
                               input.SourceY + input.SourceHeight, input.SourceY + input.SourceHeight};
-    const float uScale = static_cast<float>(input.RealTextureWidth) / input.StoredTextureWidth;
-    const float vScale = static_cast<float>(input.RealTextureHeight) / input.StoredTextureHeight;
+    // NV2A's unnormalized linear-texture coordinates are measured in texels
+    // (the pinned nxdk mesh sample supplies values up to texture.width/height).
+    // Engine source rectangles are normalized, so convert them to texel units.
+    const float uScale = static_cast<float>(input.RealTextureWidth);
+    const float vScale = static_cast<float>(input.RealTextureHeight);
     const float inverse255 = 1.0f / 255.0f;
     const float tint[4] = {input.Tint[0] * inverse255, input.Tint[1] * inverse255,
                            input.Tint[2] * inverse255, input.Tint[3] * inverse255};

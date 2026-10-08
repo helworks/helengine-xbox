@@ -1,3 +1,10 @@
+!!TS1.0
+// Texture enable/format alone does not select a sampling program on NV2A.
+texture_2d();
+nop();
+nop();
+nop();
+
 !!RC1.0
 // Modulate the sampled RGBA texel by the interpolated sprite tint.
 {

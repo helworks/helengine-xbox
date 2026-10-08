@@ -1,0 +1,13 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <TargetFramework>net9.0</TargetFramework>
+    <OutputType>Exe</OutputType>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>disable</Nullable>
+  </PropertyGroup>
+  <ItemGroup>
+    <ProjectReference Include="../../shadercompiler/helengine.xbox.shadercompiler.csproj" />
+    <ProjectReference Include="../../builder/shaders/helengine.xbox.shaders.csproj" />
+    <ProjectReference Include="../../../helengine/engine/helengine.shader.compilation/helengine.shader.compilation.csproj" />
+  </ItemGroup>
+</Project>

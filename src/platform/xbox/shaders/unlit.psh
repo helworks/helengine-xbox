@@ -1,3 +1,10 @@
+!!TS1.0
+// Reset sampling when returning from textured sprites to untextured geometry.
+nop();
+nop();
+nop();
+nop();
+
 !!RC1.0
 // Helengine Xbox v0.1 unlit register-combiner program.
 // Hand-written RC1.0 text compiled by the pinned nxdk fp20compiler into pbkit

@@ -14,6 +14,7 @@
 #include "platform/xbox/XboxContentPath.hpp"
 #include "platform/xbox/XboxCubeMesh.hpp"
 #include "platform/xbox/XboxMath.hpp"
+#include "platform/xbox/XboxLighting.hpp"
 #include "platform/xbox/XboxTextureFormat.hpp"
 #include "platform/xbox/XboxTextureUpload.hpp"
 #include "platform/xbox/XboxSpriteGeometry.hpp"
@@ -24,6 +25,8 @@ using helengine::xbox::Identity;
 using helengine::xbox::MakeCubeGeometry;
 using helengine::xbox::Matrix4;
 using helengine::xbox::Multiply;
+using helengine::xbox::TryTransformNormal;
+using helengine::xbox::EvaluateDirectionalDiffuse;
 using helengine::xbox::RotationX;
 using helengine::xbox::RotationY;
 using helengine::xbox::Transform;
@@ -37,8 +40,10 @@ using helengine::xbox::XboxTextureColorFormat;
 using helengine::xbox::XboxTextureSourceView;
 using helengine::xbox::XboxTextureStatus;
 using helengine::xbox::BuildXboxTextureLayout;
+using helengine::xbox::GetXboxTextureRowPitchBytes;
 using helengine::xbox::ConvertTextureToNv2a;
 using helengine::xbox::XboxTextureLayout;
+using helengine::xbox::ShouldPreserveAnonymousRgbaAlpha;
 using helengine::xbox::TryBuildXboxSpriteQuad;
 using helengine::xbox::XboxSpriteInput;
 using helengine::xbox::XboxSpriteQuad;
@@ -222,6 +227,31 @@ bool TestMath() {
     return true;
 }
 
+bool TestDirectionalLightingMath() {
+    Matrix4 nonUniformScale = Identity();
+    nonUniformScale.Values[0] = 2.0f;
+    nonUniformScale.Values[5] = 1.0f;
+    nonUniformScale.Values[10] = 1.0f;
+    const float modelNormal[3] = {1.0f, 1.0f, 0.0f};
+    float worldNormal[3]{};
+    CHECK(TryTransformNormal(nonUniformScale, modelNormal, worldNormal));
+    CHECK(Near(worldNormal[0], 0.4472136f));
+    CHECK(Near(worldNormal[1], 0.8944272f));
+    CHECK(Near(worldNormal[2], 0.0f));
+
+    const float lightDirection[3] = {0.0f, 0.0f, -1.0f};
+    const float frontNormal[3] = {0.0f, 0.0f, 2.0f};
+    const float backNormal[3] = {0.0f, 0.0f, -1.0f};
+    CHECK(Near(EvaluateDirectionalDiffuse(frontNormal, lightDirection, 1.0f), 1.0f));
+    CHECK(Near(EvaluateDirectionalDiffuse(backNormal, lightDirection, 1.0f), 0.0f));
+    CHECK(Near(EvaluateDirectionalDiffuse(frontNormal, lightDirection, 0.25f), 0.25f));
+
+    Matrix4 singular = Identity();
+    singular.Values[0] = 0.0f;
+    CHECK(!TryTransformNormal(singular, modelNormal, worldNormal));
+    return true;
+}
+
 bool TestDefaultPoseIsInFrontOfCamera() {
     // The host's default pose must place every cube vertex inside the frustum.
     const CubeGeometry cube = MakeCubeGeometry();
@@ -385,6 +415,22 @@ bool TestCameraTransformValidation() {
 }
 
 bool TestXboxTextureDecoding() {
+    CHECK(ShouldPreserveAnonymousRgbaAlpha(false, XboxTextureColorFormat::Rgba32,
+                                           XboxTextureAlphaPrecision::Opaque));
+    CHECK(!ShouldPreserveAnonymousRgbaAlpha(true, XboxTextureColorFormat::Rgba32,
+                                            XboxTextureAlphaPrecision::Opaque));
+    CHECK(!ShouldPreserveAnonymousRgbaAlpha(false, XboxTextureColorFormat::Rgba32,
+                                            XboxTextureAlphaPrecision::A8));
+    CHECK(!ShouldPreserveAnonymousRgbaAlpha(false, XboxTextureColorFormat::Indexed8,
+                                            XboxTextureAlphaPrecision::Opaque));
+    XboxRgbaPixel fontAtlasPixels[] = {{0, 0, 0, 0}, {255, 255, 255, 255}, {16, 32, 48, 128}};
+    SetTransparentFontAtlasTexelsToWhite(fontAtlasPixels, 3);
+    CHECK(fontAtlasPixels[0].R == 255 && fontAtlasPixels[0].G == 255 &&
+          fontAtlasPixels[0].B == 255 && fontAtlasPixels[0].A == 0);
+    CHECK(fontAtlasPixels[1].R == 255 && fontAtlasPixels[1].G == 255 &&
+          fontAtlasPixels[1].B == 255 && fontAtlasPixels[1].A == 255);
+    CHECK(fontAtlasPixels[2].R == 16 && fontAtlasPixels[2].G == 32 &&
+          fontAtlasPixels[2].B == 48 && fontAtlasPixels[2].A == 128);
     XboxRgbaPixel output[4]{};
     const std::uint8_t rgba[] = {0x12, 0x34, 0x56, 0x78};
     XboxTextureSourceView source{1, 1, XboxTextureColorFormat::Rgba32, XboxTextureAlphaPrecision::A8,
@@ -457,6 +503,7 @@ bool TestXboxTextureUploadLayout() {
     CHECK(layout.RealWidth == 3 && layout.RealHeight == 2);
     CHECK(layout.StorageWidth == 3 && layout.StorageHeight == 2);
     CHECK(layout.BytesPerTexel == 4 && layout.HardwareFormat == 0x12 && layout.ByteCount == 24);
+    CHECK(GetXboxTextureRowPitchBytes(layout) == 12);
 
     const XboxRgbaPixel pixels[] = {{0x12, 0x34, 0x56, 0x78}, {0xaa, 0xbb, 0xcc, 0xdd},
                                     {1, 2, 3, 4}, {5, 6, 7, 8}, {9, 10, 11, 12}, {13, 14, 15, 16}};
@@ -489,7 +536,7 @@ bool TestXboxSpriteGeometry() {
     CHECK(Near(quad.Vertices[2].X, 42.0f) && Near(quad.Vertices[2].Y, 36.0f));
     CHECK(Near(quad.Vertices[3].X, 10.0f) && Near(quad.Vertices[3].Y, 36.0f));
     CHECK(Near(quad.Vertices[0].U, 0.0f) && Near(quad.Vertices[0].V, 0.0f));
-    CHECK(Near(quad.Vertices[2].U, 1.0f) && Near(quad.Vertices[2].V, 1.0f));
+    CHECK(Near(quad.Vertices[2].U, 16.0f) && Near(quad.Vertices[2].V, 8.0f));
     CHECK(Near(quad.Vertices[0].R, 1.0f) && Near(quad.Vertices[0].A, 1.0f));
 
     input.SourceX = 0.25f;
@@ -499,8 +546,8 @@ bool TestXboxSpriteGeometry() {
     input.StoredTextureWidth = 32;
     input.StoredTextureHeight = 16;
     CHECK(TryBuildXboxSpriteQuad(input, quad) == XboxSpriteStatus::Ok);
-    CHECK(Near(quad.Vertices[0].U, 0.125f) && Near(quad.Vertices[0].V, 0.125f));
-    CHECK(Near(quad.Vertices[2].U, 0.375f) && Near(quad.Vertices[2].V, 0.375f));
+    CHECK(Near(quad.Vertices[0].U, 4.0f) && Near(quad.Vertices[0].V, 2.0f));
+    CHECK(Near(quad.Vertices[2].U, 12.0f) && Near(quad.Vertices[2].V, 6.0f));
 
     input = {0.0f, 0.0f, 2.0f, 4.0f, kPi / 2.0f,
              0.0f, 0.0f, 1.0f, 1.0f, 2, 4, 2, 4,
@@ -550,7 +597,7 @@ bool TestXboxSpriteGeometry() {
 
 int main() {
     const bool ok = TestCubeGeometry() && TestMath() && TestDefaultPoseIsInFrontOfCamera() &&
-                    TestContentPathResolution() && TestGeneratedMatrixConversion() &&
+                    TestContentPathResolution() && TestGeneratedMatrixConversion() && TestDirectionalLightingMath() &&
                     TestCameraTransformValidation() && TestXboxTextureDecoding() && TestXboxTextureUploadLayout() &&
                     TestXboxSpriteGeometry();
     if (!ok) {

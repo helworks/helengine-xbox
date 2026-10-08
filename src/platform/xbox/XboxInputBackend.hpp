@@ -2,28 +2,17 @@
 
 #if defined(HELENGINE_XBOX_HAS_GENERATED_CORE)
 
-// Input backend stub.
-//
-// Core::Initialize requires an IInputBackend and the interface has one pure
-// virtual, so one has to exist. This milestone reads no controllers: it renders
-// a static authored scene and has nothing to steer. The backend reports a
-// consistent empty frame - no pointer, no gamepads, no text - rather than
-// leaving the state uninitialised, so a component that polls input sees
-// "nothing pressed" instead of whatever was on the stack.
-//
-// Reading the Xbox controllers through nxdk's USB stack is a separate piece of
-// work and is deliberately not started here.
-
 #include "IInputBackend.hpp"
+#include "InputGamepadState.hpp"
+#include "runtime/array.hpp"
 
 namespace helengine::xbox {
 
 class XboxInputBackend final : public ::IInputBackend {
 public:
     XboxInputBackend();
+    ~XboxInputBackend();
 
-    bool get_ReceiveInputInBackground() override;
-    void set_ReceiveInputInBackground(bool value) override;
     ::InputFrameState CaptureFrame() override;
 
     // Number of frames captured, so the host can show that input was polled.
@@ -31,7 +20,10 @@ public:
 
 private:
     unsigned capturedFrames_ = 0;
-    bool receiveInputInBackground_ = false;
+    // InputSystem retains the previous frame's array until the next capture.
+    // Alternate bounded storage so pressed/released comparisons stay valid.
+    ::Array<::InputGamepadState> frameA_{4};
+    ::Array<::InputGamepadState> frameB_{4};
 };
 
 } // namespace helengine::xbox

@@ -25,10 +25,9 @@ namespace helengine::xbox {
 
 class XboxContentStreamSource final : public ::IContentStreamSource {
 public:
-    // Largest cooked payload served. The authored cube_test tree tops out at a
-    // 266 KiB font, so this is a wide bound whose only job is to turn a corrupt
-    // length into a diagnostic instead of an allocation failure.
-    static constexpr std::size_t MaxAssetBytes = 8u * 1024u * 1024u;
+    // A 2048x2048 RGBA authored texture takes 16 MiB plus its serialized header.
+    // Keep a finite bound while allowing the menu's background texture.
+    static constexpr std::size_t MaxAssetBytes = 32u * 1024u * 1024u;
 
     explicit XboxContentStreamSource(const char* contentRootPath = "D:\\");
 

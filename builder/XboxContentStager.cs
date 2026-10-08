@@ -29,48 +29,54 @@ public sealed class XboxContentStager {
 
         string sourceRoot = Path.GetFullPath(sourceRootPath);
         string stagingRoot = Path.GetFullPath(stagingRootPath);
-        if (string.Equals(
-                sourceRoot.TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar),
-                stagingRoot.TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar),
-                StringComparison.OrdinalIgnoreCase)) {
-            throw new InvalidOperationException("Xbox source and staging roots must be different directories.");
+        if (IsWithin(sourceRoot, stagingRoot) || IsWithin(stagingRoot, sourceRoot)) {
+            throw new InvalidOperationException("Xbox source and staging roots must be separate, non-overlapping directories.");
         }
-
-        if (Directory.Exists(stagingRoot)) Directory.Delete(stagingRoot, true);
-        Directory.CreateDirectory(stagingRoot);
-
+        EnsureNoReparsePoints(sourceRoot);
+        EnsureNoReparsePoints(stagingRoot);
         HashSet<string> paths = new(StringComparer.OrdinalIgnoreCase);
         List<string> stagedPaths = new(artifacts.Count + builderCookedRelativePaths.Count);
+        List<(string Source, string Destination)> copies = new(artifacts.Count + builderCookedRelativePaths.Count);
         foreach (PlatformBuildArtifact artifact in artifacts) {
             cancellationToken.ThrowIfCancellationRequested();
-            StageOne(artifact.RelativePath, sourceRoot, stagingRoot, paths, stagedPaths);
+            PlanOne(artifact.RelativePath, sourceRoot, stagingRoot, paths, stagedPaths, copies);
         }
         foreach (string builderCookedRelativePath in builderCookedRelativePaths) {
             cancellationToken.ThrowIfCancellationRequested();
-            StageOne(builderCookedRelativePath, sourceRoot, stagingRoot, paths, stagedPaths);
+            PlanOne(builderCookedRelativePath, sourceRoot, stagingRoot, paths, stagedPaths, copies);
+        }
+        // Complete validation before replacing a previous valid packaging tree.
+        cancellationToken.ThrowIfCancellationRequested();
+        if (Directory.Exists(stagingRoot)) Directory.Delete(stagingRoot, true);
+        Directory.CreateDirectory(stagingRoot);
+        foreach (var copy in copies) {
+            cancellationToken.ThrowIfCancellationRequested();
+            Directory.CreateDirectory(Path.GetDirectoryName(copy.Destination) ?? stagingRoot);
+            File.Copy(copy.Source, copy.Destination, true);
         }
         return stagedPaths;
     }
 
-    static void StageOne(
+    static void PlanOne(
         string candidateRelativePath,
         string sourceRoot,
         string stagingRoot,
         HashSet<string> paths,
-        List<string> stagedPaths) {
+        List<string> stagedPaths,
+        List<(string Source, string Destination)> copies) {
         string relativePath = NormalizeRelativePath(candidateRelativePath);
         if (!paths.Add(relativePath)) {
             throw new InvalidOperationException($"Xbox cooked artifact path collision: '{relativePath}'.");
         }
         string sourcePath = ResolveUnderRoot(sourceRoot, relativePath);
+        EnsureNoReparsePoints(sourcePath);
         if (!File.Exists(sourcePath)) {
             throw new FileNotFoundException(
                 $"Xbox cooked artifact '{relativePath}' was not found under package source root '{sourceRoot}'.",
                 sourcePath);
         }
         string destinationPath = ResolveUnderRoot(stagingRoot, relativePath);
-        Directory.CreateDirectory(Path.GetDirectoryName(destinationPath) ?? stagingRoot);
-        File.Copy(sourcePath, destinationPath, true);
+        copies.Add((sourcePath, destinationPath));
         stagedPaths.Add(relativePath);
     }
 
@@ -78,10 +84,30 @@ public sealed class XboxContentStager {
     public static string NormalizeRelativePath(string path) {
         if (string.IsNullOrWhiteSpace(path)) throw new InvalidOperationException("Xbox cooked artifact path is required.");
         string normalized = path.Replace('\\', '/');
-        if (normalized.StartsWith('/') || Path.IsPathRooted(normalized) || normalized.Split('/').Any(segment => segment == "..")) {
+        if (normalized.StartsWith('/') || Path.IsPathRooted(normalized) || normalized.Split('/').Any(segment => segment == "." || segment == "..")) {
             throw new InvalidOperationException($"Xbox cooked artifact path must remain relative: '{path}'.");
         }
-        return normalized;
+        string canonical = string.Join('/', normalized.Split('/').Where(segment => segment.Length != 0));
+        if (canonical.Length == 0 || canonical.Split('/').Any(segment => segment.Contains(':') || segment.EndsWith('.') || segment.EndsWith(' '))) {
+            throw new InvalidOperationException($"Xbox cooked artifact path is not a portable file path: '{path}'.");
+        }
+        return canonical;
+    }
+
+    /// <summary>Compares complete directory segments so sibling names with a common prefix remain independent.</summary>
+    static bool IsWithin(string path, string root) {
+        string normalizedRoot = root.TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar);
+        return string.Equals(path.TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar), normalizedRoot, StringComparison.OrdinalIgnoreCase)
+            || path.StartsWith(normalizedRoot + Path.DirectorySeparatorChar, StringComparison.OrdinalIgnoreCase);
+    }
+
+    /// <summary>Rejects linked files and directory ancestors whose physical target would bypass lexical containment.</summary>
+    static void EnsureNoReparsePoints(string path) {
+        for (string current = path; current != null; current = Path.GetDirectoryName(current)) {
+            if ((Directory.Exists(current) || File.Exists(current)) && (File.GetAttributes(current) & FileAttributes.ReparsePoint) != 0) {
+                throw new InvalidOperationException($"Xbox staging paths must not traverse symbolic links or junctions: '{current}'.");
+            }
+        }
     }
 
     static string ResolveUnderRoot(string root, string relativePath) {

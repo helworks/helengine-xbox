@@ -28,6 +28,22 @@ std::uint8_t ApplyAlpha(std::uint8_t alpha, XboxTextureAlphaPrecision precision)
 
 } // namespace
 
+bool ShouldPreserveAnonymousRgbaAlpha(bool hasStableIdentity, XboxTextureColorFormat colorFormat,
+                                      XboxTextureAlphaPrecision alphaPrecision) noexcept {
+    return !hasStableIdentity && colorFormat == XboxTextureColorFormat::Rgba32 &&
+           alphaPrecision == XboxTextureAlphaPrecision::Opaque;
+}
+
+void SetTransparentFontAtlasTexelsToWhite(XboxRgbaPixel* pixels, std::size_t pixelCount) noexcept {
+    if (pixels == nullptr) return;
+    for (std::size_t i = 0; i < pixelCount; ++i) {
+        if (pixels[i].A != 0) continue;
+        pixels[i].R = 0xff;
+        pixels[i].G = 0xff;
+        pixels[i].B = 0xff;
+    }
+}
+
 XboxTextureStatus DecodeTextureToRgba8(const XboxTextureSourceView& source, XboxRgbaPixel* output,
                                        std::size_t outputPixelCapacity) noexcept {
     if (source.Width == 0 || source.Height == 0) return XboxTextureStatus::InvalidExtent;

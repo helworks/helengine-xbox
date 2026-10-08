@@ -9,6 +9,8 @@
     <HelengineRoot Condition="'$(HelengineRoot)' == ''">$(MSBuildThisFileDirectory)..\..\helengine</HelengineRoot>
   </PropertyGroup>
   <ItemGroup>
+    <Compile Remove="shaders/**/*.cs" />
+    <ProjectReference Include="shaders/helengine.xbox.shaders.csproj" />
     <ProjectReference Include="$(HelengineRoot)\engine\helengine.baseplatform\helengine.baseplatform.csproj" />
     <ProjectReference Include="$(HelengineRoot)\engine\helengine.core\helengine.core.csproj" />
     <ProjectReference Include="$(HelengineRoot)\engine\helengine.editor\helengine.editor.csproj" />

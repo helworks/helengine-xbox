@@ -29,6 +29,8 @@ $(error NXDK_DIR is required; point it at the pinned nxdk checkout)
 endif
 
 MODE ?= Diagnostic
+SOURCE_ROOT ?= $(CURDIR)
+NATIVE_OBJECT_ROOT ?= $(CURDIR)
 ifeq ($(filter Diagnostic Authored,$(MODE)),)
 $(error MODE must be Diagnostic or Authored (got '$(MODE)'))
 endif
@@ -141,22 +143,28 @@ $(error CONTENT_ROOT contains no files: $(CONTENT_ROOT))
 endif
 endif
 
-PLATFORM_DIR := $(CURDIR)/src/platform/xbox
+PLATFORM_DIR := $(SOURCE_ROOT)/src/platform/xbox
 SHADER_DIR := $(PLATFORM_DIR)/shaders
 
 SRCS = \
-	$(CURDIR)/src/main.cpp \
+	$(SOURCE_ROOT)/src/main.cpp \
 	$(PLATFORM_DIR)/XboxBootHost.cpp \
 	$(PLATFORM_DIR)/XboxVideo.cpp \
 	$(PLATFORM_DIR)/XboxCubeMesh.cpp \
 	$(PLATFORM_DIR)/XboxMath.cpp \
+	$(PLATFORM_DIR)/XboxShaderArtifact.cpp \
+	$(PLATFORM_DIR)/XboxShaderConstants.cpp \
+	$(PLATFORM_DIR)/XboxShaderProgram.cpp \
+	$(PLATFORM_DIR)/XboxShaderMaterial.cpp \
+	$(PLATFORM_DIR)/XboxShaderRuntimeMaterial.cpp \
 	$(PLATFORM_DIR)/XboxRasterRenderer.cpp \
 	$(PLATFORM_DIR)/XboxAbiChecks.cpp \
 	$(PLATFORM_DIR)/XboxCxxAbi.cpp
 
 SRCS += \
 	$(PLATFORM_DIR)/XboxContentPath.cpp \
-	$(PLATFORM_DIR)/XboxAuthoredTransform.cpp
+	$(PLATFORM_DIR)/XboxAuthoredTransform.cpp \
+	$(PLATFORM_DIR)/XboxLighting.cpp
 
 ifeq ($(MODE),Authored)
 # Only meaningful when a Core is linked: the fatal hook the generated runtime
@@ -166,11 +174,15 @@ SRCS += \
 	$(PLATFORM_DIR)/XboxContentStreamSource.cpp \
 	$(PLATFORM_DIR)/XboxCookedAsset.cpp \
 	$(PLATFORM_DIR)/XboxRuntimeModel.cpp \
+	$(PLATFORM_DIR)/XboxModelTextureCoordinates.cpp \
 	$(PLATFORM_DIR)/XboxRuntimeMaterial.cpp \
 	$(PLATFORM_DIR)/XboxRuntimeTexture.cpp \
+	$(PLATFORM_DIR)/XboxTextureStageState.cpp \
+	$(PLATFORM_DIR)/XboxShaderTextureBinding.cpp \
 	$(PLATFORM_DIR)/XboxTextureFormat.cpp \
 	$(PLATFORM_DIR)/XboxTextureUpload.cpp \
 	$(PLATFORM_DIR)/XboxSpriteGeometry.cpp \
+	$(PLATFORM_DIR)/XboxRoundedRaster.cpp \
 	$(PLATFORM_DIR)/XboxRenderManager3D.cpp \
 	$(PLATFORM_DIR)/XboxRenderManager2D.cpp \
 	$(PLATFORM_DIR)/XboxInputBackend.cpp \
@@ -185,7 +197,7 @@ SHADER_OBJS = \
 
 HELENGINE_CXXFLAGS := \
 	-std=c++17 -Wall -Wextra -Werror $(HELENGINE_OPTFLAGS) \
-	-I$(CURDIR)/src \
+	-I$(SOURCE_ROOT)/src \
 	-DHELENGINE_XBOX_PROBE=$(PROBE_VALUE) \
 	-DHELENGINE_XBOX_STOP_AFTER_FRAMES=$(STOP_AFTER_FRAMES)u \
 	-DHELENGINE_XBOX_POSE=$(POSE_VALUE) \
@@ -243,14 +255,18 @@ ifeq ($(MODE),Authored)
 #               through dynamic_cast; __RTDynamicCast comes from XboxCxxAbi.cpp
 #   exceptions  left at nxdk's -fno-exceptions default, matching a Core
 #               generated with codegen-use-exceptions=false
-GENERATED_CORE_OBJECT := $(CURDIR)/generated_core_unity.obj
+GENERATED_CORE_OBJECT := $(NATIVE_OBJECT_ROOT)/generated_core_unity.obj
 GENERATED_CORE_CXXFLAGS := -std=c++20 -w $(HELENGINE_OPTFLAGS) \
 	-DHE_CPP_RUNTIME_PROVIDER_HEADER='$(HELENGINE_CORE_PROVIDER_HEADER)' \
-	-I$(GENERATED_CORE_ROOT) -I$(GENERATED_CORE_ROOT)/runtime -I$(CURDIR)/src
+	-I$(GENERATED_CORE_ROOT) -I$(GENERATED_CORE_ROOT)/runtime -I$(SOURCE_ROOT)/src
 
 $(GENERATED_CORE_OBJECT): $(GENERATED_CORE_UNITY)
 	@echo "[ CXX CORE ] $@"
-	$(VE)$(CXX) $(NXDK_CXXFLAGS) $(GENERATED_CORE_CXXFLAGS) -c -o '$@' '$<'
+	$(VE)$(CXX) $(NXDK_CXXFLAGS) $(GENERATED_CORE_CXXFLAGS) -MMD -MP -MT '$@' -MF '$@.d' -c -o '$@' '$<'
+
+# Unity's include list can remain unchanged while its included sources change.
+# Track those sources and headers so a subsequent build cannot relink old Core.
+-include $(GENERATED_CORE_OBJECT).d
 
 AUTHORED_OBJECTS := $(GENERATED_CORE_OBJECT)
 
@@ -261,11 +277,13 @@ AUTHORED_OBJECTS := $(GENERATED_CORE_OBJECT)
 # which is what makes a builder-side catalog ABI - the route helengine-dc takes
 # - unnecessary here. Same flags as the Core: they include its runtime headers.
 GENERATED_MANIFEST_NAMES := runtime_scene_catalog_manifest runtime_startup_manifest
-GENERATED_MANIFEST_OBJECTS := $(patsubst %,$(CURDIR)/generated_%.obj,$(GENERATED_MANIFEST_NAMES))
+GENERATED_MANIFEST_OBJECTS := $(patsubst %,$(NATIVE_OBJECT_ROOT)/generated_%.obj,$(GENERATED_MANIFEST_NAMES))
 
-$(CURDIR)/generated_%.obj: $(GENERATED_CORE_ROOT)/runtime/%.cpp
+$(NATIVE_OBJECT_ROOT)/generated_%.obj: $(GENERATED_CORE_ROOT)/runtime/%.cpp
 	@echo "[ CXX MAN  ] $@"
-	$(VE)$(CXX) $(NXDK_CXXFLAGS) $(GENERATED_CORE_CXXFLAGS) -c -o '$@' '$<'
+	$(VE)$(CXX) $(NXDK_CXXFLAGS) $(GENERATED_CORE_CXXFLAGS) -MMD -MP -MT '$@' -MF '$@.d' -c -o '$@' '$<'
+
+-include $(GENERATED_MANIFEST_OBJECTS:%=%.d)
 
 AUTHORED_OBJECTS += $(GENERATED_MANIFEST_OBJECTS)
 

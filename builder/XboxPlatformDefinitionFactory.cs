@@ -5,8 +5,8 @@ namespace helengine.xbox.builder;
 
 /// <summary>Creates the editor-facing Original Xbox platform contract.</summary>
 public static class XboxPlatformDefinitionFactory {
-    // Every id here must exist in the checked-in engine feature catalog. text2d and shaders stay off because
-    // the Xbox runtime has no text pass or shader pipeline yet; debug_overlay stays off for the same reason.
+    // The legacy runtime disables shader and text passes. The opted-in shader runtime supports shared
+    // text batching, while debug overlay remains unavailable in both profiles.
     // render2d and sprites are deliberately left enabled, matching N64: forcing render2d off also strips the
     // std types the generated Core is built on.
     const string ForcedDisabledFeatures = "debug_overlay;shaders;text2d";
@@ -44,7 +44,9 @@ public static class XboxPlatformDefinitionFactory {
     /// <summary>Codegen option id selecting compiler RTTI for the generated Core's casts and generic dispatch.</summary>
     public const string UseRttiSettingId = "codegen-use-rtti";
 
-    public static PlatformDefinition Create() {
+    /// <summary>Creates either the unchanged legacy contract or the explicitly opted-in experimental shader runtime contract.</summary>
+    public static PlatformDefinition Create(bool compiledShaders = false) {
+        string graphicsProfile = compiledShaders ? "xbox-shader" : XboxMaterialSchemaIds.StandardGraphicsProfileId;
         PlatformSettingDefinition[] buildSettings = [
             new("game-name", "Game Name", PlatformSettingKind.Text, "helengine", true, []),
             new("enable-native-runtime-diagnostics", "Enable Native Runtime Diagnostics", PlatformSettingKind.Boolean, "false", true, [])
@@ -57,7 +59,8 @@ public static class XboxPlatformDefinitionFactory {
             PlatformCodegenLanguage.Cpp,
             PlatformSerializationEndianness.LittleEndian,
             [
-                new(PlatformCodegenSettingIds.ForcedDisabledFeatures, "Forced Disabled Features", PlatformSettingKind.Text, ForcedDisabledFeatures, true, []),
+                new(PlatformCodegenSettingIds.ForcedDisabledFeatures, "Forced Disabled Features", PlatformSettingKind.Text,
+                    compiledShaders ? "debug_overlay" : ForcedDisabledFeatures, true, []),
                 // The native renderer builds its clip matrix as Projection * View * Model against column
                 // vectors, matching the engine row-vector convention used by the desktop and GameCube targets.
                 new("generated-math-convention", "Generated Math Convention", PlatformSettingKind.Text, "engine-row-vector", true, []),
@@ -98,13 +101,16 @@ public static class XboxPlatformDefinitionFactory {
                 // RTTI stays on: generic implementation dispatch selects concrete generated types through
                 // dynamic_cast and cannot be lowered without it (codegen reports CPP1001). nxdk supplies no
                 // __RTDynamicCast, so this repository implements it in src/platform/xbox/XboxCxxAbi.cpp.
-                new(UseRttiSettingId, "Use C++ RTTI", PlatformSettingKind.Boolean, "true", true, [])
+                new(UseRttiSettingId, "Use C++ RTTI", PlatformSettingKind.Boolean, "true", true, []),
+                .. (compiledShaders ? new PlatformSettingDefinition[] {
+                    new(PlatformCodegenSettingIds.EnabledFeatures, "Enabled Shader Runtime", PlatformSettingKind.Text, "shaders", true, [])
+                } : Array.Empty<PlatformSettingDefinition>())
             ]);
 
         PlatformMaterialSchemaDefinition materialSchema = new(
             XboxMaterialSchemaIds.StandardSchemaId,
             "Xbox Opaque Unlit",
-            [XboxMaterialSchemaIds.StandardGraphicsProfileId],
+            compiledShaders ? [XboxMaterialSchemaIds.StandardGraphicsProfileId, "xbox-shader"] : [XboxMaterialSchemaIds.StandardGraphicsProfileId],
             [
                 new(XboxMaterialSchemaIds.BaseColorFieldId, "Base Color", PlatformMaterialFieldKind.Color, "#FFFFFFFF", true, []),
                 new(XboxMaterialSchemaIds.TextureRelativePathFieldId, "Texture", PlatformMaterialFieldKind.Text, string.Empty, false, []),
@@ -113,16 +119,20 @@ public static class XboxPlatformDefinitionFactory {
             ]);
 
         PlatformBuildProfileDefinition[] profiles = [
-            new("debug", "Debug", "Xbox development build", XboxMaterialSchemaIds.StandardGraphicsProfileId, "default", buildSettings),
-            new("release", "Release", "Xbox release build", XboxMaterialSchemaIds.StandardGraphicsProfileId, "default", buildSettings)
+            new("debug", "Debug", "Xbox development build", graphicsProfile, "default", buildSettings),
+            new("release", "Release", "Xbox release build", graphicsProfile, "default", buildSettings)
         ];
 
         return new PlatformDefinition(
             "xbox",
             "Original Xbox",
             profiles,
-            [new PlatformGraphicsProfileDefinition(XboxMaterialSchemaIds.StandardGraphicsProfileId, "Xbox Standard", "NV2A opaque unlit renderer with depth testing and back-face culling", [])],
+            [new PlatformGraphicsProfileDefinition(graphicsProfile, compiledShaders ? "Xbox Shader (Experimental)" : "Xbox Standard",
+                compiledShaders ? "Explicit HLSL/Cg shader packages; unsupported programs fail without legacy fallback" : "NV2A opaque unlit renderer with depth testing and back-face culling", [])],
             [new PlatformAssetRequirementDefinition("scene", "Scene", true, ["helen"])],
+            // Shader batches and classic authored meshes coexist. Publishing the classic
+            // schema keeps their authored colour in the cooked payload instead of serializing
+            // an empty shader material for the raw-shader runtime resolver.
             [materialSchema],
             [
                 new PlatformComponentSupportRule("helengine.meshcomponent", PlatformComponentSupportKind.Transform, "One static triangle-list mesh is supported.", "Remove unsupported mesh components."),
@@ -137,6 +147,7 @@ public static class XboxPlatformDefinitionFactory {
             [codegen],
             [new PlatformStorageProfileDefinition("xbox-xiso-package", "XISO Package", PlatformStorageProfileKind.LooseFiles, "xbox-xiso-package", false)],
             [new PlatformMediaProfileDefinition("xbox-dvd", "Xbox DVD Image", PlatformMediaLayoutKind.InstallTree, false, true)],
-            new RuntimeGenerationContract(RuntimeMaterialResolutionMode.CookedPlatformOwned, true, PackagedPathPolicy.ContentRelativeOnly));
+            new RuntimeGenerationContract(compiledShaders ? RuntimeMaterialResolutionMode.RawShaderBacked : RuntimeMaterialResolutionMode.CookedPlatformOwned,
+                true, PackagedPathPolicy.ContentRelativeOnly, ["HELENGINE_CODEGEN_FATAL_ONLY"]));
     }
 }

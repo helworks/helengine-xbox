@@ -9,7 +9,7 @@ using helengine.baseplatform.Results;
 namespace helengine.xbox.builder;
 
 /// <summary>Platform discovery and build contract for the Original Xbox target.</summary>
-public sealed class XboxPlatformAssetBuilder : IPlatformAssetBuilder {
+public sealed class XboxPlatformAssetBuilder : IPlatformAssetBuilder, IShaderBackendRegistryContributor, IPlatformShaderArtifactBuilder, IPlatformRendererShaderDependencyProvider, IPlatformRawShaderMaterialPackagingPolicy {
     readonly XboxMaterialCooker MaterialCooker = new();
     readonly IXboxNativeBuildExecutor NativeBuildExecutor;
 
@@ -27,14 +27,47 @@ public sealed class XboxPlatformAssetBuilder : IPlatformAssetBuilder {
             new ManifestCompatibilityRange(1, 1),
             ["xbox"],
             ["xbox"]);
-        Definition = XboxPlatformDefinitionFactory.Create();
+        Definition = XboxPlatformDefinitionFactory.Create(ReadExperimentalShaderRuntime());
     }
 
     public PlatformBuilderDescriptor Descriptor { get; }
 
     public PlatformDefinition Definition { get; }
 
+    /// <summary>Preserves shader-owned material payloads while classic materials use the Xbox cooker.</summary>
+    public bool PreserveAuthoredShaderMaterialPayloads => true;
+
+    /// <summary>Declares only the shared batch variant implemented by the shader profile.</summary>
+    public IReadOnlyList<PlatformShaderDependency> RendererShaderDependencies =>
+        Definition.RuntimeGenerationContract.MaterialResolutionMode == RuntimeMaterialResolutionMode.RawShaderBacked
+            ? Array.AsReadOnly(new[] { new PlatformShaderDependency("SpriteBatchShader", "SpriteBatchShader.vs", "SpriteBatchShader.ps", "Textured") })
+            : Array.Empty<PlatformShaderDependency>();
+
+    /// <summary>Reads the process-scoped development opt-in; invalid values fail instead of choosing a renderer silently.</summary>
+    static bool ReadExperimentalShaderRuntime() {
+        string value = Environment.GetEnvironmentVariable("HELENGINE_XBOX_EXPERIMENTAL_SHADER_RUNTIME");
+        if (string.IsNullOrEmpty(value) || value == "0") return false;
+        if (value == "1") return true;
+        throw new InvalidOperationException("HELENGINE_XBOX_EXPERIMENTAL_SHADER_RUNTIME must be 0 or 1.");
+    }
+
+    /// <summary>Registers the Original Xbox compiler without enabling shader runtime support prematurely.</summary>
+    public void RegisterShaderBackends(ShaderBackendRegistry shaderBackendRegistry) {
+        ArgumentNullException.ThrowIfNull(shaderBackendRegistry);
+        shaderBackendRegistry.Register(new XboxShaderBackend());
+    }
+
     public PlatformMaterialCookResult CookMaterial(PlatformMaterialCookRequest request) => MaterialCooker.Cook(request);
+
+    /// <summary>Publishes referenced Xbox shader packages only for the explicitly selected shader runtime.</summary>
+    public PlatformShaderArtifactCookResult CookShaderArtifacts(PlatformShaderArtifactCookRequest request) {
+        ArgumentNullException.ThrowIfNull(request);
+        if (Definition.RuntimeGenerationContract.MaterialResolutionMode != RuntimeMaterialResolutionMode.RawShaderBacked) {
+            if (request.ShaderDependencies.Count != 0) throw new InvalidOperationException("Xbox legacy profile cannot consume authored shader packages.");
+            return new PlatformShaderArtifactCookResult([]);
+        }
+        return new XboxShaderArtifactCooker().Cook(request);
+    }
 
     public async Task<PlatformBuildReport> BuildAsync(
         PlatformBuildRequest request,
@@ -81,7 +114,10 @@ public sealed class XboxPlatformAssetBuilder : IPlatformAssetBuilder {
             progressReporter.Report(new PlatformBuildProgressUpdate("Stage Disc Content", "manifest", 1, 1, $"Staged {staged.Count} cooked artifact(s)."));
 
             progressReporter.Report(new PlatformBuildProgressUpdate("Build Native Image", "game.iso", 0, 1, "Building authored Xbox runtime."));
-            NativeBuildExecutor.Build(request.GeneratedCoreCppRootPath, stagingRoot, request.OutputRoot, cancellationToken);
+            string nativeCacheRoot = string.IsNullOrWhiteSpace(request.NativeObjectCacheRoot)
+                ? Path.Combine(request.WorkingRoot, "xbox-native-cache")
+                : request.NativeObjectCacheRoot;
+            NativeBuildExecutor.Build(request.GeneratedCoreCppRootPath, stagingRoot, request.OutputRoot, nativeCacheRoot, cancellationToken);
             progressReporter.Report(new PlatformBuildProgressUpdate("Build Native Image", "game.iso", 1, 1, "Built authored Xbox runtime."));
         } catch (OperationCanceledException) {
             throw;

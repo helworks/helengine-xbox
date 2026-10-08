@@ -5,14 +5,26 @@
 #include "XboxAuthoredTransform.hpp"
 #include "XboxCookedAsset.hpp"
 #include "XboxDiagnostics.hpp"
+#include "XboxLighting.hpp"
+#include "XboxMaterialFormat.hpp"
 #include "XboxRasterRenderer.hpp"
 #include "XboxRuntimeMaterial.hpp"
 #include "XboxRuntimeModel.hpp"
+#include "XboxRuntimeTexture.hpp"
+#include "XboxShaderRuntimeMaterial.hpp"
+#if defined(HELENGINE_XBOX_HAS_SHADER_RUNTIME)
+#include "ShaderRuntimeMaterialLoader.hpp"
+#include "ShaderMaterialAsset.hpp"
+#include "ShaderAsset.hpp"
+#include "ContentManager.hpp"
+#include "system/io/stream.hpp"
+#endif
 
 #include <cmath>
 
 #include "CameraClearSettings.hpp"
 #include "Core.hpp"
+#include "DirectionalLightComponent.hpp"
 #include "Entity.hpp"
 #include "ICamera.hpp"
 #include "IDrawable3D.hpp"
@@ -90,6 +102,25 @@ void XboxRenderManager3D::Draw() {
     }
     lastFrame_.Cameras = static_cast<unsigned>(cameras->get_Count());
     lastFrame_.Drawables = static_cast<unsigned>(drawables->get_Count());
+    List<::DirectionalLightComponent*>* directionalLights = objects->get_DirectionalLights();
+    float lightDirection[3]{};
+    float lightColor[3] = {1.0f, 1.0f, 1.0f};
+    float lightIntensity = 0.0f;
+    if (directionalLights != nullptr && directionalLights->get_Count() > 0) {
+        ::DirectionalLightComponent* light = directionalLights->get_Item(0);
+        Matrix4 lightWorld{};
+        if (light != nullptr && TryEntityWorldMatrix(light->get_Parent(), lightWorld)) {
+            // Authored directional lights emit along their owner's local -Z.
+            lightDirection[0] = -lightWorld.Values[2];
+            lightDirection[1] = -lightWorld.Values[6];
+            lightDirection[2] = -lightWorld.Values[10];
+            const ::float4 color = light->get_Color();
+            lightColor[0] = color.X;
+            lightColor[1] = color.Y;
+            lightColor[2] = color.Z;
+            lightIntensity = light->get_Intensity();
+        }
+    }
     if (lastFrame_.Cameras == 0) {
         Skip("scene has no camera");
         return;
@@ -150,22 +181,61 @@ void XboxRenderManager3D::Draw() {
                 continue;
             }
             Array<::RuntimeMaterial*>* materials = drawable->get_Materials();
-            XboxRuntimeMaterial* material = nullptr;
-            if (materials != nullptr && materials->get_Length() > 0) {
-                material = dynamic_cast<XboxRuntimeMaterial*>((*materials)[0]);
-            }
-            if (material == nullptr) {
-                Skip("drawable has no native material");
-                continue;
-            }
-            const float* color = material->Color();
-            model->EnsureColor(color[0], color[1], color[2], color[3]);
+#if defined(HELENGINE_XBOX_HAS_SHADER_RUNTIME)
+            XboxShaderRuntimeMaterial* material = nullptr;
+            if (materials != nullptr && materials->get_Length() > 0)
+                material = dynamic_cast<XboxShaderRuntimeMaterial*>((*materials)[0]);
+            if (material != nullptr) {
+                const char* reason = nullptr;
+                if (!material->Prepare(reason)) {
+                    Skip(reason == nullptr ? "drawable has no compiled material" : reason);
+                    continue;
+                }
+                XboxRuntimeTexture* texture = nullptr;
+                if (material->RequiresTexture()) {
+                    texture = dynamic_cast<XboxRuntimeTexture*>(material->ResolveTexture());
+                    if (texture == nullptr || texture->IsDisposedNative() || !model->HasTextureCoordinates()) {
+                        Skip("compiled mesh requires a live native texture and authored UVs");
+                        continue;
+                    }
+                }
+                model->EnsureColor(1, 1, 1, 1);
+                const Matrix4 clip = Multiply(viewProjection, world);
+                if (!renderer_->DrawAuthored(clip, model->GpuVertices(), model->VertexCount(),
+                                             model->Indices(), model->IndexCount(), &material->NativeMaterial(), texture)) {
+                    Skip("renderer rejected compiled authored mesh");
+                    continue;
+                }
+            } else
+#endif
+            {
+                XboxRuntimeMaterial* material = nullptr;
+                if (materials != nullptr && materials->get_Length() > 0) {
+                    material = dynamic_cast<XboxRuntimeMaterial*>((*materials)[0]);
+                }
+                if (material == nullptr) {
+                    Skip("drawable has no native material");
+                    continue;
+                }
+                const float* color = material->Color();
+                bool lightingReady = true;
+                if (lightIntensity > 0.0f) {
+                    lightingReady = model->ApplyDirectionalLighting(color[0], color[1], color[2], color[3], world,
+                                                                    lightDirection, lightColor, lightIntensity);
+                } else {
+                    model->EnsureColor(color[0], color[1], color[2], color[3]);
+                }
+                if (!lightingReady) {
+                    Skip("model normal could not be transformed");
+                    continue;
+                }
 
-            const Matrix4 clip = Multiply(viewProjection, world);
-            if (!renderer_->DrawAuthored(clip, model->GpuVertices(), model->VertexCount(),
-                                         model->Indices(), model->IndexCount())) {
-                Skip("renderer rejected an authored mesh");
-                continue;
+                const Matrix4 clip = Multiply(viewProjection, world);
+                if (!renderer_->DrawAuthored(clip, model->GpuVertices(), model->VertexCount(),
+                                             model->Indices(), model->IndexCount())) {
+                    Skip("renderer rejected an authored mesh");
+                    continue;
+                }
             }
             ++lastFrame_.Submitted;
             lastFrame_.Triangles += model->IndexCount() / 3u;
@@ -177,6 +247,57 @@ void XboxRenderManager3D::Draw() {
     }
 }
 
+#if defined(HELENGINE_XBOX_HAS_SHADER_RUNTIME)
+::ShaderCompileTarget XboxRenderManager3D::get_ShaderCompileTarget() { return ::ShaderCompileTarget::Xbox; }
+::RuntimeMaterial* XboxRenderManager3D::BuildMaterialFromRaw(::ShaderMaterialAsset* materialAsset, ::ShaderAsset* shaderAsset) {
+    if (materialAsset == nullptr || shaderAsset == nullptr) return nullptr;
+    const char* reason = nullptr;
+    auto* material = XboxShaderRuntimeMaterial::Create(*materialAsset, *shaderAsset, reason);
+    if (material == nullptr) {
+        Diagnostics::Log("shader material rejected: %s", reason);
+    } else {
+        ShaderPrograms[materialAsset->ShaderAssetId].push_back(material->SharedProgram());
+        Diagnostics::Log("shader material loaded: %s", materialAsset->Id.c_str());
+    }
+    return material;
+}
+::RuntimeMaterial* XboxRenderManager3D::BuildMaterialFromRawAsset(::ContentManager* content, std::string path) {
+    if (content == nullptr || content->get_ContentStreamSource() == nullptr) return nullptr;
+    ::Stream* stream = content->get_ContentStreamSource()->OpenRead(path);
+    if (stream == nullptr) return nullptr;
+    uint8_t header[12]{};
+    size_t length = 0;
+    while (length < sizeof(header)) {
+        int value = stream->ReadByte();
+        if (value < 0) break;
+        header[length++] = static_cast<uint8_t>(value);
+    }
+    stream->Close();
+    stream->Dispose();
+    delete stream;
+    switch (ClassifyMaterialHeader(header, length)) {
+        case XboxMaterialFormat::Classic:
+            return BuildMaterialFromCooked(path, content->get_ContentStreamSource());
+        case XboxMaterialFormat::Shader:
+            return ::ShaderRuntimeMaterialLoader::BuildMaterialFromRawAsset(this, content, path);
+        default:
+            Diagnostics::Log("material: unsupported packaged material format (%s)", path.c_str());
+            return nullptr;
+    }
+}
+void XboxRenderManager3D::InvalidateShaderResources(std::string shaderAssetId, ::ShaderAsset*) {
+    auto found = ShaderPrograms.find(shaderAssetId);
+    if (found == ShaderPrograms.end()) return;
+    for (auto& reference : found->second) {
+        auto program = reference.lock();
+        if (program) {
+            const char* reason = nullptr;
+            program->Load(nullptr, 0, nullptr, 0, reason);
+        }
+    }
+    ShaderPrograms.erase(found);
+}
+#endif
 ::RuntimeMaterial* XboxRenderManager3D::BuildMaterialFromCooked(::PlatformMaterialAsset* materialAsset) {
     if (materialAsset == nullptr) {
         Diagnostics::Log("material: null platform asset");
@@ -223,12 +344,26 @@ void XboxRenderManager3D::Draw() {
 }
 
 ::RuntimeModel* XboxRenderManager3D::BuildModelFromRaw(::ModelAsset* data) {
+#if defined(HELENGINE_XBOX_HAS_SHADER_RUNTIME)
+    // The shader-backed generated resolver deserializes the packaged ModelAsset
+    // before calling this API. Reuse the cooked path's full validation and copy;
+    // the resolver releases its borrowed source immediately after we return.
+    if (data == nullptr) {
+        Diagnostics::Log("model: missing deserialized asset");
+        return nullptr;
+    }
+    const char* reason = nullptr;
+    XboxRuntimeModel* model = XboxRuntimeModel::Create(*data, reason);
+    if (model == nullptr) Diagnostics::Log("model: %s (%s)", reason, data->Id.c_str());
+    return model;
+#else
     // Raw construction would bypass the cooker, whose output this platform's
     // conversion is written against. Refuse it rather than accept an asset in
     // an unvalidated shape.
     (void)data;
     Diagnostics::Log("model: raw construction is unsupported; use cooked assets");
     return nullptr;
+#endif
 }
 
 void XboxRenderManager3D::ReleaseMaterial(::RuntimeMaterial* material) {

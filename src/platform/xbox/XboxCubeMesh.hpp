@@ -12,6 +12,8 @@ namespace helengine::xbox {
 struct CubeVertex {
     float Position[3];
     float Color[4];
+    float Normal[3];
+    float TexCoord[2]; // Authored normalized UV; shader ABI applies texture extents.
 };
 
 struct CubeGeometry {

@@ -19,6 +19,14 @@
 #include "XboxMath.hpp"
 
 #include "RenderManager3D.hpp"
+#include "XboxShaderRuntimeConfig.hpp"
+#if defined(HELENGINE_XBOX_HAS_SHADER_RUNTIME)
+#include "IShaderRenderManager3D.hpp"
+#include "XboxShaderProgram.hpp"
+#include <map>
+#include <memory>
+#include <vector>
+#endif
 
 class PlatformMaterialAsset;
 
@@ -37,7 +45,11 @@ struct AuthoredFrameCounts {
     const char* LastSkipReason = "";
 };
 
-class XboxRenderManager3D final : public ::RenderManager3D {
+class XboxRenderManager3D final : public ::RenderManager3D
+#if defined(HELENGINE_XBOX_HAS_SHADER_RUNTIME)
+    , public ::IShaderRenderManager3D
+#endif
+{
 public:
     XboxRenderManager3D();
 
@@ -52,10 +64,24 @@ public:
 
     void Dispose() override;
 
-    ::RuntimeMaterial* BuildMaterialFromCooked(::PlatformMaterialAsset* materialAsset);
+#if defined(HELENGINE_XBOX_HAS_SHADER_RUNTIME)
+    ::ShaderCompileTarget get_ShaderCompileTarget() override;
+    ::RuntimeMaterial* BuildMaterialFromRaw(::ShaderMaterialAsset* materialAsset, ::ShaderAsset* shaderAsset) override;
+    ::RuntimeMaterial* BuildMaterialFromRawAsset(::ContentManager* content, std::string path) override;
+    void InvalidateShaderResources(std::string shaderAssetId, ::ShaderAsset* shaderAsset) override;
+#endif
+    ::RuntimeMaterial* BuildMaterialFromCooked(::PlatformMaterialAsset* materialAsset)
+#if !defined(HELENGINE_XBOX_HAS_SHADER_RUNTIME)
+        override
+#endif
+        ;
 
     ::RuntimeMaterial* BuildMaterialFromCooked(std::string cookedAssetPath,
-                                               ::IContentStreamSource* contentStreamSource);
+                                               ::IContentStreamSource* contentStreamSource)
+#if !defined(HELENGINE_XBOX_HAS_SHADER_RUNTIME)
+        override
+#endif
+        ;
 
     ::RuntimeModel* BuildModelFromCooked(std::string cookedAssetPath,
                                          ::IContentStreamSource* contentStreamSource) override;
@@ -70,6 +96,9 @@ public:
     unsigned PresentedFrames() const { return presentedFrames_; }
 
 private:
+#if defined(HELENGINE_XBOX_HAS_SHADER_RUNTIME)
+    std::map<std::string, std::vector<std::weak_ptr<XboxShaderProgram>>> ShaderPrograms;
+#endif
     // Records a skip reason on the current frame and returns false.
     bool Skip(const char* reason);
 

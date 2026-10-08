@@ -39,9 +39,8 @@ public sealed class XboxMaterialCooker {
 
         helengine.PlatformMaterialAsset cooked = new() {
             Id = request.MaterialAssetId,
-            RendererFamilyId = string.IsNullOrWhiteSpace(request.SelectedGraphicsProfileId)
-                ? XboxMaterialSchemaIds.StandardGraphicsProfileId
-                : request.SelectedGraphicsProfileId,
+            // This cooker emits the classic format even when shader batching is enabled.
+            RendererFamilyId = XboxMaterialSchemaIds.StandardGraphicsProfileId,
             TextureRelativePath = string.Empty,
             DoubleSided = false,
             UseVertexColor = false,

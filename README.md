@@ -17,7 +17,7 @@ not implemented.
 ## Prerequisites
 
 - Docker Desktop (Linux containers). The whole compiler/SDK lives in the image.
-- The pinned nxdk checkout at `C:\dev\helworks\builds\helengine-xbox\dependencies\nxdk`
+- The pinned nxdk checkout at `.xbox\dependencies\nxdk` (ignored by Git)
   (commit `29638d0b001f179b73c3513489af10ddc2986216`, submodules initialized,
   working tree normalized to LF: `core.autocrlf=false`). It is the Docker build
   context for the toolchain image and is verified before every build.

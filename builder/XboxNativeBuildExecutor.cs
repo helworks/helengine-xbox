@@ -7,10 +7,11 @@ public sealed class XboxNativeBuildExecutor : IXboxNativeBuildExecutor {
     /// <summary>Environment variable naming the Xbox implementation checkout.</summary>
     public const string RepositoryRootVariable = "HELENGINE_XBOX_REPOSITORY_ROOT";
 
-    public void Build(string generatedCoreCppRootPath, string stagedContentRootPath, string outputRootPath, CancellationToken cancellationToken) {
+    public void Build(string generatedCoreCppRootPath, string stagedContentRootPath, string outputRootPath, string nativeObjectCacheRootPath, CancellationToken cancellationToken) {
         if (string.IsNullOrWhiteSpace(generatedCoreCppRootPath)) throw new ArgumentException("Generated Core root is required.", nameof(generatedCoreCppRootPath));
         if (string.IsNullOrWhiteSpace(stagedContentRootPath)) throw new ArgumentException("Staged content root is required.", nameof(stagedContentRootPath));
         if (string.IsNullOrWhiteSpace(outputRootPath)) throw new ArgumentException("Output root is required.", nameof(outputRootPath));
+        if (string.IsNullOrWhiteSpace(nativeObjectCacheRootPath)) throw new ArgumentException("Native object cache root is required.", nameof(nativeObjectCacheRootPath));
         cancellationToken.ThrowIfCancellationRequested();
 
         string repositoryRoot = Environment.GetEnvironmentVariable(RepositoryRootVariable) ?? string.Empty;
@@ -26,15 +27,12 @@ public sealed class XboxNativeBuildExecutor : IXboxNativeBuildExecutor {
 
         Directory.CreateDirectory(outputRootPath);
 
-        // build.ps1 refuses to reuse an invocation directory, so each native pass gets a fresh one and the
-        // build record it writes stays attributable to exactly one source snapshot.
-        string invocationRoot = Path.Combine(
-            outputRootPath,
-            "native-" + DateTime.UtcNow.ToString("yyyyMMdd-HHmmss-fff"));
+        // Reuse the profile's staging directory. The wrapper invalidates the prior success receipt
+        // before compiling and publishes its new content fingerprints only after validation.
+        string invocationRoot = Path.Combine(outputRootPath, "native");
 
         ProcessStartInfo info = new() {
-            // Windows PowerShell, not pwsh: pwsh is not on PATH in this workspace.
-            FileName = "powershell",
+            FileName = "pwsh",
             WorkingDirectory = repositoryRoot,
             UseShellExecute = false,
             CreateNoWindow = true,
@@ -56,6 +54,8 @@ public sealed class XboxNativeBuildExecutor : IXboxNativeBuildExecutor {
         info.ArgumentList.Add(generatedCoreCppRootPath);
         info.ArgumentList.Add("-ContentRoot");
         info.ArgumentList.Add(stagedContentRootPath);
+        info.ArgumentList.Add("-NativeObjectCacheRoot");
+        info.ArgumentList.Add(Path.GetFullPath(nativeObjectCacheRootPath));
 
         using Process process = Process.Start(info) ?? throw new InvalidOperationException("Could not start the Xbox build wrapper.");
         Task<string> standardOutput = process.StandardOutput.ReadToEndAsync(cancellationToken);

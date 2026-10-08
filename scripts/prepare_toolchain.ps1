@@ -1,6 +1,6 @@
 [CmdletBinding()]
 param(
-    [string]$NxdkPath = 'C:\dev\helworks\builds\helengine-xbox\dependencies\nxdk',
+    [string]$NxdkPath,
     [string]$DockerImage = 'helengine-xbox-sdk:v01',
     [string]$ExpectedNxdkCommit = '29638d0b001f179b73c3513489af10ddc2986216',
     [string]$LogRoot
@@ -14,6 +14,9 @@ $ErrorActionPreference = 'Stop'
 Set-StrictMode -Version Latest
 
 $repoRoot = [IO.Path]::GetFullPath((Join-Path $PSScriptRoot '..'))
+if ([string]::IsNullOrWhiteSpace($NxdkPath)) {
+    $NxdkPath = Join-Path $repoRoot '.xbox\dependencies\nxdk'
+}
 $NxdkPath = [IO.Path]::GetFullPath($NxdkPath)
 $dockerfile = Join-Path $repoRoot 'docker\Dockerfile'
 $lockPath = Join-Path $repoRoot 'toolchain-lock.txt'
