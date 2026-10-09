@@ -27,6 +27,7 @@ XboxTextureStatus BuildXboxTextureLayout(std::uint32_t width, std::uint32_t heig
 }
 
 std::uint32_t GetXboxTextureRowPitchBytes(const XboxTextureLayout& layout) noexcept {
+    if (layout.NativePayload) return layout.PitchBytes;
     if (layout.RealWidth == 0 || layout.BytesPerTexel == 0 ||
         layout.RealWidth > std::numeric_limits<std::uint32_t>::max() / layout.BytesPerTexel) {
         return 0;

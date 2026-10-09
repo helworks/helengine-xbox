@@ -11,8 +11,40 @@ An **Authored** build links an editor-generated Core, packages the cooked
 content tree onto the disc, and runs the authored startup scene: it reads cooked
 models and materials off the DVD, drives Core's update/draw lifecycle, and
 submits the scene's own cameras and drawables through the same NV2A path. It is
-unlit, opaque and untextured; lighting, textures, 2D and controller input are
-not implemented.
+unlit in the standard profile. Textured meshes and 2D sprites use the native
+texture path; the experimental shader profile also supports the shared text
+and sprite batches used by the DemoDisc menu.
+
+## Texture formats
+
+The texture cooker and renderer support all 42 NV2A texture color codes declared
+by the pinned nxdk header: linear and swizzled color, luminance/alpha, P8 palettes,
+packed YUV422, bump/depth formats, and DXT1, DXT3 and DXT5. Select their `Xbox.*`
+identifiers in the per-platform import settings. The existing 11 generic engine
+formats remain valid, so older RGBA/font settings do not require a migration.
+
+New assets default to `Xbox.Linear.A8R8G8B8` with eight-bit alpha and a 4096-pixel
+resolution cap. A cap of zero retains uncapped import semantics; the resulting
+native texture still must fit the 4096-pixel hardware extent on each axis.
+Font-atlas textures use the same cook contract without shrinking approved glyph
+atlases to a lower platform default.
+
+Native cooked texels upload directly to GPU memory. Linear rows use an aligned
+byte pitch; swizzled and compressed textures use padded power-of-two storage
+while retaining their real dimensions. Palettes have a separate aligned GPU
+allocation. Sprite and shader UV scaling follows the storage layout.
+
+The `XTX1` version-one payload retains the source's stable identity and stores
+one texture level. Its fixed little-endian header describes format, dimensions,
+pitch and pixel/palette sizes. The engine's `XboxNative` asset format wraps this
+payload; previews decode it through the shared codec, while the Xbox copies the
+native texels and palette directly. DXT currently uses the straight-alpha
+DXT1/3/5 variants; premultiplied DXT2/4 are not separate import choices.
+
+Host tests cover all hardware codes and managed-to-native payload compatibility;
+SDK compilation checks the runtime. Emulator format coverage may differ from
+the pinned hardware catalog, so these checks do not claim visual verification
+of every format on xemu or physical hardware.
 
 ## Prerequisites
 

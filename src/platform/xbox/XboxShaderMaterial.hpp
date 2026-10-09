@@ -16,8 +16,8 @@ public:
     bool SetVertexConstant(const std::string& name, const float* values, size_t floatCount);
     bool SetPixelConstant(const std::string& name, const float* values, size_t floatCount);
     bool BuildDrawConstants(const Matrix4& clip, unsigned width, unsigned height,
-                            unsigned textureWidth, unsigned textureHeight, float (&output)[96][4]) const;
-    bool Bind(const Matrix4& clip, unsigned width, unsigned height, unsigned textureWidth, unsigned textureHeight,
+                            float textureWidth, float textureHeight, float (&output)[96][4]) const;
+    bool Bind(const Matrix4& clip, unsigned width, unsigned height, float textureWidth, float textureHeight,
               XboxShaderInstructionWriter vertexWriter, XboxShaderRegisterWriter pixelWriter,
               XboxShaderConstantWriter constantWriter, void* context, const char*& reason) const;
     const XboxShaderProgram* Program() const { return Ready ? SharedProgram.get() : nullptr; }

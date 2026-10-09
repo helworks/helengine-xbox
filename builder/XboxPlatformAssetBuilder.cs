@@ -97,17 +97,13 @@ public sealed class XboxPlatformAssetBuilder : IPlatformAssetBuilder, IShaderBac
             string packageSourceRoot = ResolvePackageSourceRoot(request.WorkingRoot);
 
             PlatformCookWorkItem[] cookWorkItems = request.Manifest.PlatformCookWorkItems ?? [];
-            if (cookWorkItems.Length > 0) {
-                // No builder-owned cook kinds are declared yet, so anything arriving here means the platform
-                // definition and this builder have drifted apart. Fail loudly rather than skip the work.
-                throw new InvalidOperationException(
-                    $"Xbox builder received {cookWorkItems.Length} platform cook work item(s) but declares no builder-owned cook capabilities.");
-            }
+            IReadOnlyList<string> cookedPaths = new XboxPlatformCookWorkItemExecutor().Execute(
+                cookWorkItems, request.Manifest.CookedArtifacts, packageSourceRoot, cancellationToken);
 
             progressReporter.Report(new PlatformBuildProgressUpdate("Stage Disc Content", "manifest", 0, 1, "Staging declared Xbox cooked artifacts."));
             IReadOnlyList<string> staged = new XboxContentStager().Stage(
                 request.Manifest.CookedArtifacts,
-                [],
+                cookedPaths,
                 packageSourceRoot,
                 stagingRoot,
                 cancellationToken);

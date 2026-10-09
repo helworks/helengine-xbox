@@ -6,6 +6,8 @@
 #include <new>
 
 #include "runtime/array.hpp"
+#include "XboxNativeTexturePayload.hpp"
+#include "XboxDiagnostics.hpp"
 #include <xboxkrnl/xboxkrnl.h>
 
 namespace helengine::xbox {
@@ -65,23 +67,30 @@ XboxRuntimeTexture* XboxRuntimeTexture::Create(const ::TextureAsset& asset, cons
                                        colors, colorsLength, palette, paletteLength};
 
     XboxTextureLayout layout{};
-    XboxTextureStatus status = BuildXboxTextureLayout(asset.Width, asset.Height, layout);
+    XboxNativeTexturePayload nativePayload{};
+    const bool isNativePayload = colorFormat == XboxTextureColorFormat::XboxNative;
+    XboxTextureStatus status = isNativePayload ? ParseXboxNativeTexturePayload(source, nativePayload)
+        : BuildXboxTextureLayout(asset.Width, asset.Height, layout);
     if (status != XboxTextureStatus::Ok) {
         reason = TextureStatusReason(status, colorFormat);
         return nullptr;
     }
+    if (isNativePayload) layout = nativePayload.Layout;
 
     std::size_t pixelCount = static_cast<std::size_t>(asset.Width) * asset.Height;
-    XboxRgbaPixel* decoded = new (std::nothrow) XboxRgbaPixel[pixelCount];
-    if (decoded == nullptr) {
-        reason = "texture CPU decode allocation failed";
-        return nullptr;
-    }
-    status = DecodeTextureToRgba8(source, decoded, pixelCount);
-    if (status != XboxTextureStatus::Ok) {
-        reason = TextureStatusReason(status, colorFormat);
-        delete[] decoded;
-        return nullptr;
+    XboxRgbaPixel* decoded = nullptr;
+    if (!isNativePayload) {
+        decoded = new (std::nothrow) XboxRgbaPixel[pixelCount];
+        if (decoded == nullptr) {
+            reason = "texture CPU decode allocation failed";
+            return nullptr;
+        }
+        status = DecodeTextureToRgba8(source, decoded, pixelCount);
+        if (status != XboxTextureStatus::Ok) {
+            reason = TextureStatusReason(status, colorFormat);
+            delete[] decoded;
+            return nullptr;
+        }
     }
     if (isAnonymousFontCoverage) {
         // The NV2A linearly filters this atlas. White RGB in transparent texels
@@ -107,8 +116,24 @@ XboxRuntimeTexture* XboxRuntimeTexture::Create(const ::TextureAsset& asset, cons
     // Populate the GPU allocation directly. A full-size background must not
     // require an additional texture-sized upload buffer alongside its cooked
     // payload, decoded pixels and contiguous GPU storage.
-    status = ConvertTextureToNv2a(source, decoded, layout,
-        static_cast<std::uint8_t*>(texture->gpuMemory_), layout.ByteCount);
+    if (isNativePayload) {
+        std::memcpy(texture->gpuMemory_, nativePayload.Texels, layout.ByteCount);
+        if (nativePayload.PaletteByteCount) {
+            texture->paletteGpuMemory_ = MmAllocateContiguousMemoryEx(static_cast<SIZE_T>(nativePayload.PaletteByteCount),
+                0,kGpuHighestAddress,64,PAGE_READWRITE | PAGE_WRITECOMBINE);
+            if (texture->paletteGpuMemory_ == nullptr) {
+                reason = "NV2A contiguous palette allocation failed";
+                delete texture;
+                return nullptr;
+            }
+            std::memcpy(texture->paletteGpuMemory_,nativePayload.Palette,nativePayload.PaletteByteCount);
+            texture->paletteGpuOffset_ = static_cast<std::uint32_t>(
+                reinterpret_cast<std::uintptr_t>(texture->paletteGpuMemory_) & kGpuAddressMask);
+        }
+    } else {
+        status = ConvertTextureToNv2a(source, decoded, layout,
+            static_cast<std::uint8_t*>(texture->gpuMemory_), layout.ByteCount);
+    }
     delete[] decoded;
     if (status != XboxTextureStatus::Ok) {
         reason = TextureStatusReason(status, colorFormat);
@@ -122,6 +147,9 @@ XboxRuntimeTexture* XboxRuntimeTexture::Create(const ::TextureAsset& asset, cons
     texture->set_Width(static_cast<int32_t>(asset.Width));
     texture->set_Height(static_cast<int32_t>(asset.Height));
     texture->set_IsEngineOwned(asset.IsEngineOwned);
+    if (isNativePayload) Diagnostics::Log("texture native: code=0x%02x real=%ux%u storage=%ux%u pitch=%u bytes=%u palette=%u",
+        layout.HardwareFormat,layout.RealWidth,layout.RealHeight,layout.StorageWidth,layout.StorageHeight,
+        layout.PitchBytes,static_cast<unsigned>(layout.ByteCount),static_cast<unsigned>(nativePayload.PaletteByteCount));
     return texture;
 }
 
@@ -130,6 +158,11 @@ void XboxRuntimeTexture::Dispose() {
         return;
     }
     disposed_ = true;
+    if (paletteGpuMemory_ != nullptr) {
+        MmFreeContiguousMemory(paletteGpuMemory_);
+        paletteGpuMemory_ = nullptr;
+        paletteGpuOffset_ = 0;
+    }
     if (gpuMemory_ != nullptr) {
         MmFreeContiguousMemory(gpuMemory_);
         gpuMemory_ = nullptr;

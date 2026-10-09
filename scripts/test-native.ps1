@@ -76,12 +76,22 @@ $inner = 'set -e; ' +
     'g++ -std=c++17 -Wall -Wextra -Werror -UNDEBUG -I/src/src -I/opt/nxdk/lib ' +
     '/src/tests/shader_material_tests.cpp /src/src/platform/xbox/XboxShaderMaterial.cpp ' +
     '/src/src/platform/xbox/XboxShaderTextureBinding.cpp /src/src/platform/xbox/XboxTextureStageState.cpp ' +
+    '/src/src/platform/xbox/XboxNativeTextureLayout.cpp ' +
     '/src/src/platform/xbox/XboxTextureUpload.cpp ' +
     '/src/src/platform/xbox/XboxShaderArtifact.cpp /src/src/platform/xbox/XboxShaderProgram.cpp ' +
     '/src/src/platform/xbox/XboxShaderConstants.cpp -o /out/shader_material_tests; /out/shader_material_tests; ' +
     'g++ -std=c++17 -Wall -Wextra -Werror -UNDEBUG -I/src/src ' +
     '/src/tests/texture_stage_state_tests.cpp /src/src/platform/xbox/XboxTextureStageState.cpp ' +
-    '/src/src/platform/xbox/XboxTextureUpload.cpp -I/opt/nxdk/lib -o /out/texture_stage_state_tests; /out/texture_stage_state_tests'
+    '/src/src/platform/xbox/XboxTextureUpload.cpp /src/src/platform/xbox/XboxNativeTextureLayout.cpp ' +
+    '-I/opt/nxdk/lib -o /out/texture_stage_state_tests; /out/texture_stage_state_tests; ' +
+    'g++ -std=c++17 -Wall -Wextra -Werror -UNDEBUG -I/src/src ' +
+    '/src/tests/texture_format_tests.cpp /src/src/platform/xbox/XboxTextureFormat.cpp ' +
+    '-o /out/texture_format_tests; /out/texture_format_tests; ' +
+    'g++ -std=c++17 -Wall -Wextra -Werror -UNDEBUG -I/src/src -I/opt/nxdk/lib ' +
+    '/src/tests/native_texture_layout_tests.cpp /src/src/platform/xbox/XboxNativeTextureLayout.cpp ' +
+    '/src/src/platform/xbox/XboxNativeTexturePayload.cpp /src/src/platform/xbox/XboxTextureUpload.cpp ' +
+    '/src/src/platform/xbox/XboxTextureStageState.cpp /src/src/platform/xbox/XboxShaderConstants.cpp ' +
+    '-o /out/native_texture_layout_tests; /out/native_texture_layout_tests'
 $dockerArgs = @(
     'run', '--rm',
     '--mount', "type=bind,source=$repoRoot,target=/src,readonly",

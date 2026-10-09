@@ -58,7 +58,6 @@ constexpr unsigned kTextureCoordinateAttribute = 9;
 #if defined(HELENGINE_XBOX_HAS_GENERATED_CORE)
 constexpr unsigned kMaxSpriteQuadsPerFrame = 512;
 constexpr unsigned kSpriteVertexCount = kMaxSpriteQuadsPerFrame * 4;
-constexpr std::uint32_t kNvTextureFormatLinearA8R8G8B8 = 0x12;
 constexpr std::uint32_t kNvTextureStage0LinearFormat = 0x00011222;
 constexpr std::uint32_t kNvTextureAddressClamp = 0x00030303;
 constexpr std::uint32_t kNvTextureFilterFromPinnedMeshSample = 0x04074000;
@@ -494,7 +493,7 @@ bool XboxRasterRenderer::DrawCompiledBatch(const XboxBatch2DSubmission& batch, c
     unsigned origin[] = {viewportX, viewportY};
     const char* reason = nullptr;
     if (!BindShaderMaterialTexture(material, projection, viewportWidth, viewportHeight, &texture.Layout(), texture.GpuOffset(),
-            PushCompiledInstruction, PushCompiledRegister, PushBatchConstants, origin, reason)) {
+            PushCompiledInstruction, PushCompiledRegister, PushBatchConstants, origin, reason, texture.PaletteGpuOffset())) {
         Diagnostics::Log("batch shader rejected: %s", reason);
         return false;
     }
@@ -538,11 +537,8 @@ bool XboxRasterRenderer::DrawSprite(const XboxSpriteQuad& quad, const XboxRuntim
         return false;
     }
     const XboxTextureLayout& layout = texture.Layout();
-    const std::uint32_t rowPitchBytes = GetXboxTextureRowPitchBytes(layout);
-    if (texture.IsDisposedNative() || texture.GpuOffset() == 0 || layout.RealWidth == 0 ||
-        layout.RealHeight == 0 || layout.StorageWidth != layout.RealWidth ||
-        layout.StorageHeight != layout.RealHeight || layout.BytesPerTexel != 4 ||
-        layout.HardwareFormat != kNvTextureFormatLinearA8R8G8B8 || rowPitchBytes == 0) {
+    XboxTextureStageState stage;
+    if (texture.IsDisposedNative() || !BuildTextureStageState(&layout, texture.GpuOffset(), stage, texture.PaletteGpuOffset())) {
         return false;
     }
     if (spriteCount_ >= kMaxSpriteQuadsPerFrame) {
@@ -554,12 +550,14 @@ bool XboxRasterRenderer::DrawSprite(const XboxSpriteQuad& quad, const XboxRuntim
     }
     XboxSpriteVertex* vertices = gpuSpriteVertices_ + spriteCount_ * 4;
     std::memcpy(vertices, quad.Vertices, sizeof(quad.Vertices));
-    uint32_t* p = pb_begin();
-    p = pb_push1(p, NV097_SET_TEXTURE_OFFSET, texture.GpuOffset());
-    p = pb_push1(p, NV097_SET_TEXTURE_CONTROL1, rowPitchBytes << 16);
-    p = pb_push1(p, NV097_SET_TEXTURE_IMAGE_RECT,
-                 ((layout.RealWidth & 0xffffu) << 16) | (layout.RealHeight & 0xffffu));
-    pb_end(p);
+    // Sprite geometry supplies real texel coordinates. Native POT layouts sample normalized storage coordinates.
+    const float uMultiplier = stage.UvScaleX / static_cast<float>(layout.RealWidth);
+    const float vMultiplier = stage.UvScaleY / static_cast<float>(layout.RealHeight);
+    for (unsigned vertex=0;vertex<4;++vertex) {
+        vertices[vertex].U *= uMultiplier;
+        vertices[vertex].V *= vMultiplier;
+    }
+    if (!BindTextureStage(&layout,texture.GpuOffset(),PushCompiledRegister,nullptr,texture.PaletteGpuOffset())) return false;
     PushSpriteVertexAttributes(vertices);
     PushIndexedTriangles(kSpriteIndices, 6);
     ++spriteCount_;
@@ -708,7 +706,7 @@ bool XboxRasterRenderer::DrawAuthored(const Matrix4& clip,
         if (!BindShaderMaterialTexture(*material, clip, static_cast<unsigned>(viewportScale_[0] * 2),
                 static_cast<unsigned>(-viewportScale_[1] * 2), texture == nullptr ? nullptr : &texture->Layout(),
                 texture == nullptr ? 0 : texture->GpuOffset(), PushCompiledInstruction, PushCompiledRegister,
-                PushCompiledConstants, nullptr, reason)) {
+                PushCompiledConstants, nullptr, reason, texture == nullptr ? 0 : texture->PaletteGpuOffset())) {
             Diagnostics::Log("compiled textured material rejected: %s", reason == nullptr ? "invalid binding" : reason);
             return false;
         }

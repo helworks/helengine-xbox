@@ -181,6 +181,8 @@ SRCS += \
 	$(PLATFORM_DIR)/XboxShaderTextureBinding.cpp \
 	$(PLATFORM_DIR)/XboxTextureFormat.cpp \
 	$(PLATFORM_DIR)/XboxTextureUpload.cpp \
+	$(PLATFORM_DIR)/XboxNativeTextureLayout.cpp \
+	$(PLATFORM_DIR)/XboxNativeTexturePayload.cpp \
 	$(PLATFORM_DIR)/XboxSpriteGeometry.cpp \
 	$(PLATFORM_DIR)/XboxRoundedRaster.cpp \
 	$(PLATFORM_DIR)/XboxRenderManager3D.cpp \

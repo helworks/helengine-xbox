@@ -3,7 +3,7 @@
 #include <cstring>
 #include <pbkit/nv_regs.h>
 namespace helengine::xbox {
-bool XboxShaderMaterial::Bind(const Matrix4& clip, unsigned width, unsigned height, unsigned textureWidth, unsigned textureHeight,
+bool XboxShaderMaterial::Bind(const Matrix4& clip, unsigned width, unsigned height, float textureWidth, float textureHeight,
                               XboxShaderInstructionWriter vertexWriter, XboxShaderRegisterWriter pixelWriter,
                               XboxShaderConstantWriter constantWriter, void* context, const char*& reason) const {
     reason = "Material constants are incomplete or a GPU writer is missing";
@@ -103,7 +103,7 @@ bool XboxShaderMaterial::SetVertexConstant(const std::string& name, const float*
     return true;
 }
 bool XboxShaderMaterial::BuildDrawConstants(const Matrix4& clip, unsigned width, unsigned height,
-                                           unsigned textureWidth, unsigned textureHeight, float (&output)[96][4]) const {
+                                           float textureWidth, float textureHeight, float (&output)[96][4]) const {
     if (!Ready) return false;
     XboxShaderArtifactView vertex{};
     const char* reason = nullptr;

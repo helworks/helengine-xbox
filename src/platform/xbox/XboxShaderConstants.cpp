@@ -3,8 +3,9 @@
 
 namespace helengine::xbox {
 bool BuildShaderDrawConstants(const Matrix4& clip, int matrixRegister, unsigned width, unsigned height,
-                              unsigned textureWidth, unsigned textureHeight, float (&output)[XboxShaderConstantCount][4]) {
-    if (width == 0 || height == 0 || textureWidth == 0 || textureHeight == 0 ||
+                              float textureWidth, float textureHeight, float (&output)[XboxShaderConstantCount][4]) {
+    if (width == 0 || height == 0 || !std::isfinite(textureWidth) || !std::isfinite(textureHeight) ||
+        textureWidth <= 0 || textureHeight <= 0 ||
         matrixRegister < -1 || matrixRegister > 89) return false;
     for (float value : clip.Values) if (!std::isfinite(value)) return false;
     for (auto& vector : output) for (float& value : vector) value = 0;

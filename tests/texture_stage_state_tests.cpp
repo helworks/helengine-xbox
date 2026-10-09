@@ -45,7 +45,7 @@ int main() {
     assert(!BindTextureStage(&layout, 0x1000, nullptr, &writes));
     assert(writes.Count == 0);
     assert(BindTextureStage(&layout, 0x1000, Capture, &writes));
-    assert(writes.Count == 11);
+    assert(writes.Count == 15);
     assert(writes.Values[NV097_SET_TEXTURE_OFFSET] == 0x1000);
     assert(writes.Values[NV097_SET_TEXTURE_CONTROL1] == 0x01000000);
     assert(writes.Values[NV097_SET_TEXTURE_IMAGE_RECT] == 0x00400020);
@@ -61,7 +61,7 @@ int main() {
     for (unsigned stage = 1; stage < 4; ++stage)
         assert(writes.Values[NV097_SET_TEXTURE_CONTROL0 + stage * 64] == 0);
     assert(BindTextureStage(nullptr, 0, Capture, &writes));
-    assert(writes.Count == 15);
+    assert(writes.Count == 23);
     for (unsigned stage = 0; stage < 4; ++stage)
         assert(writes.Values[NV097_SET_TEXTURE_CONTROL0 + stage * 64] == 0);
     std::puts("Texture preparation validates extents, pitch, allocation bounds and clears stale state.");

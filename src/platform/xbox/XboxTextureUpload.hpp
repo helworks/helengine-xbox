@@ -12,6 +12,10 @@ struct XboxTextureLayout {
     std::uint32_t BytesPerTexel;
     std::uint32_t HardwareFormat;
     std::size_t ByteCount;
+    // Native payloads retain their actual GPU layout; legacy converted RGBA stays linear and tightly packed.
+    bool NativePayload = false;
+    std::uint32_t PitchBytes = 0;
+    std::uint32_t PaletteEntries = 0;
 };
 
 XboxTextureStatus BuildXboxTextureLayout(std::uint32_t width, std::uint32_t height,

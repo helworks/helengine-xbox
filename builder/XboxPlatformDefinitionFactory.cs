@@ -148,6 +148,43 @@ public static class XboxPlatformDefinitionFactory {
             [new PlatformStorageProfileDefinition("xbox-xiso-package", "XISO Package", PlatformStorageProfileKind.LooseFiles, "xbox-xiso-package", false)],
             [new PlatformMediaProfileDefinition("xbox-dvd", "Xbox DVD Image", PlatformMediaLayoutKind.InstallTree, false, true)],
             new RuntimeGenerationContract(compiledShaders ? RuntimeMaterialResolutionMode.RawShaderBacked : RuntimeMaterialResolutionMode.CookedPlatformOwned,
-                true, PackagedPathPolicy.ContentRelativeOnly, ["HELENGINE_CODEGEN_FATAL_ONLY"]));
+                true, PackagedPathPolicy.ContentRelativeOnly, ["HELENGINE_CODEGEN_FATAL_ONLY"]),
+            assetCookCapabilities: CreateAssetCookCapabilities());
+    }
+
+    /// <summary>Publishes identical native texture choices for authored textures and full-resolution font atlases.</summary>
+    static PlatformAssetCookCapabilityDefinition[] CreateAssetCookCapabilities() {
+        string defaults = XboxTextureCookSettingsSerializer.Serialize(XboxTextureCookSettingsSerializer.CreateDefaults());
+        PlatformTextureFormatCapabilityDefinition formats = CreateTextureFormatCapabilities();
+        return [
+            new("texture", "runtime-texture", PlatformAssetCookOwnershipKind.BuilderOwned, "xbox-texture", defaults, formats),
+            new("font-atlas-texture", "runtime-texture", PlatformAssetCookOwnershipKind.BuilderOwned, "xbox-font-atlas-texture", defaults, formats)
+        ];
+    }
+
+    /// <summary>Derives every format/alpha combination from the same catalog used by the native encoder.</summary>
+    static PlatformTextureFormatCapabilityDefinition CreateTextureFormatCapabilities() {
+        List<PlatformTextureFormatCombinationDefinition> combinations = [];
+        List<string> formatIds = [];
+        HashSet<TextureAssetAlphaPrecision> alphaPrecisions = [];
+        foreach (XboxNativeTextureFormatDefinition format in XboxNativeTextureFormatCatalog.Formats) {
+            formatIds.Add(format.Id);
+            foreach (TextureAssetAlphaPrecision alpha in format.SupportedAlphaPrecisions) {
+                alphaPrecisions.Add(alpha);
+                combinations.Add(new PlatformTextureFormatCombinationDefinition(format.Id, alpha));
+            }
+        }
+        foreach (TextureAssetColorFormat format in Enum.GetValues<TextureAssetColorFormat>()) {
+            if (!helengine.editor.TextureAssetProcessorSettings.TryResolveGenericColorFormat(format.ToString(), out _)) continue;
+            formatIds.Add(format.ToString());
+            foreach (TextureAssetAlphaPrecision alpha in Enum.GetValues<TextureAssetAlphaPrecision>()) {
+                if (!TextureAssetPixelCodec.IsAlphaPrecisionSupported(format, alpha)) continue;
+                alphaPrecisions.Add(alpha);
+                combinations.Add(new PlatformTextureFormatCombinationDefinition(format.ToString(), alpha));
+            }
+        }
+        return new PlatformTextureFormatCapabilityDefinition(
+            formatIds,
+            alphaPrecisions.OrderBy(alpha => alpha).ToArray(), combinations);
     }
 }

@@ -12,6 +12,6 @@ constexpr unsigned XboxViewportOffsetConstant = 95;
 // All unspecified constants, including SPIRV-Cross's half-pixel helper, start at
 // zero. Material constants must be uploaded afterwards using validated bindings.
 bool BuildShaderDrawConstants(const Matrix4& clip, int matrixRegister,
-                              unsigned width, unsigned height, unsigned textureWidth, unsigned textureHeight,
+                              unsigned width, unsigned height, float textureWidth, float textureHeight,
                               float (&output)[XboxShaderConstantCount][4]);
 }
