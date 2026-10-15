@@ -256,12 +256,12 @@ void XboxRenderManager3D::Draw() {
     if (material == nullptr) {
         Diagnostics::Log("shader material rejected: %s", reason);
     } else {
-        ShaderPrograms[materialAsset->ShaderAssetId].push_back(material->SharedProgram());
+        ShaderPrograms[materialAsset->ShaderAssetId.raw()].push_back(material->SharedProgram());
         Diagnostics::Log("shader material loaded: %s", materialAsset->Id.c_str());
     }
     return material;
 }
-::RuntimeMaterial* XboxRenderManager3D::BuildMaterialFromRawAsset(::ContentManager* content, std::string path) {
+::RuntimeMaterial* XboxRenderManager3D::BuildMaterialFromRawAsset(::ContentManager* content, HeCppString path) {
     if (content == nullptr || content->get_ContentStreamSource() == nullptr) return nullptr;
     ::Stream* stream = content->get_ContentStreamSource()->OpenRead(path);
     if (stream == nullptr) return nullptr;
@@ -285,8 +285,8 @@ void XboxRenderManager3D::Draw() {
             return nullptr;
     }
 }
-void XboxRenderManager3D::InvalidateShaderResources(std::string shaderAssetId, ::ShaderAsset*) {
-    auto found = ShaderPrograms.find(shaderAssetId);
+void XboxRenderManager3D::InvalidateShaderResources(HeCppString shaderAssetId, ::ShaderAsset*) {
+    auto found = ShaderPrograms.find(shaderAssetId.raw());
     if (found == ShaderPrograms.end()) return;
     for (auto& reference : found->second) {
         auto program = reference.lock();
@@ -312,7 +312,7 @@ void XboxRenderManager3D::InvalidateShaderResources(std::string shaderAssetId, :
 }
 
 ::RuntimeMaterial* XboxRenderManager3D::BuildMaterialFromCooked(
-    std::string cookedAssetPath, ::IContentStreamSource* contentStreamSource) {
+    HeCppString cookedAssetPath, ::IContentStreamSource* contentStreamSource) {
     const char* reason = nullptr;
     ::PlatformMaterialAsset* asset =
         ReadCookedAssetAs<::PlatformMaterialAsset>(cookedAssetPath, contentStreamSource, reason);
@@ -326,7 +326,7 @@ void XboxRenderManager3D::InvalidateShaderResources(std::string shaderAssetId, :
 }
 
 ::RuntimeModel* XboxRenderManager3D::BuildModelFromCooked(
-    std::string cookedAssetPath, ::IContentStreamSource* contentStreamSource) {
+    HeCppString cookedAssetPath, ::IContentStreamSource* contentStreamSource) {
     const char* reason = nullptr;
     ::ModelAsset* asset = ReadCookedAssetAs<::ModelAsset>(cookedAssetPath, contentStreamSource, reason);
     if (asset == nullptr) {

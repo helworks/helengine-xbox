@@ -20,7 +20,7 @@ void CloseStream(::Stream* stream) {
 
 } // namespace
 
-::Asset* ReadCookedAsset(const std::string& path, ::IContentStreamSource* source,
+::Asset* ReadCookedAsset(const HeCppString& path, ::IContentStreamSource* source,
                          const char*& reason) {
     reason = nullptr;
     if (source == nullptr) {
@@ -50,7 +50,7 @@ void ReleaseAssetStorage(::Asset* asset) {
     // would take the shared instance out from under every other asset, so only
     // an owned array is released here.
     if (asset->FormerAuthoringAssetIds != nullptr &&
-        asset->FormerAuthoringAssetIds != ::Array<std::string>::Empty()) {
+        asset->FormerAuthoringAssetIds != ::Array<HeCppString>::Empty()) {
         delete asset->FormerAuthoringAssetIds;
     }
     asset->FormerAuthoringAssetIds = nullptr;

@@ -25,10 +25,10 @@ XboxContentStreamSource::XboxContentStreamSource(const char* contentRootPath)
     return nullptr;
 }
 
-::Stream* XboxContentStreamSource::OpenRead(std::string assetPath) {
+::Stream* XboxContentStreamSource::OpenRead(HeCppString assetPath) {
     std::string discPath;
     const char* reason = nullptr;
-    if (!ResolveDiscContentPath(contentRootPath_.c_str(), assetPath, discPath, reason)) {
+    if (!ResolveDiscContentPath(contentRootPath_.c_str(), assetPath.raw(), discPath, reason)) {
         return fail(reason, assetPath.c_str());
     }
 

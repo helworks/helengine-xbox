@@ -8,10 +8,18 @@
 #include <usbh_lib.h>
 #include <xid_driver.h>
 #include <cstring>
+#include <limits>
 
 namespace helengine::xbox {
 
 namespace {
+// XID reports positive-up; the engine's stick contract uses negative-up.
+// The asymmetric signed range requires saturation when negating INT16_MIN.
+int16_t EngineStickY(int16_t nativeValue) {
+    return nativeValue == std::numeric_limits<int16_t>::min()
+        ? std::numeric_limits<int16_t>::max()
+        : static_cast<int16_t>(-nativeValue);
+}
 struct ControllerReport { xid_dev_t* Device = nullptr; xid_gamepad_in Report{}; };
 ControllerReport reports[4];
 void ReadComplete(UTR_T* transfer) {
@@ -64,8 +72,8 @@ XboxInputBackend::~XboxInputBackend() {
         if (!slot.Device) continue;
         const auto& input = slot.Report;
         pad.Connected = true;
-        pad.LeftStickX = input.leftStickX; pad.LeftStickY = input.leftStickY;
-        pad.RightStickX = input.rightStickX; pad.RightStickY = input.rightStickY;
+        pad.LeftStickX = input.leftStickX; pad.LeftStickY = EngineStickY(input.leftStickY);
+        pad.RightStickX = input.rightStickX; pad.RightStickY = EngineStickY(input.rightStickY);
         pad.LeftTrigger = static_cast<int16_t>(input.l * 128);
         pad.RightTrigger = static_cast<int16_t>(input.r * 128);
         const auto button = [&](::InputGamepadButton value, bool down) { pad.SetButtonDown(value, down); };

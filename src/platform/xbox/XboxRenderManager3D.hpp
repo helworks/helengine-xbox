@@ -67,8 +67,8 @@ public:
 #if defined(HELENGINE_XBOX_HAS_SHADER_RUNTIME)
     ::ShaderCompileTarget get_ShaderCompileTarget() override;
     ::RuntimeMaterial* BuildMaterialFromRaw(::ShaderMaterialAsset* materialAsset, ::ShaderAsset* shaderAsset) override;
-    ::RuntimeMaterial* BuildMaterialFromRawAsset(::ContentManager* content, std::string path) override;
-    void InvalidateShaderResources(std::string shaderAssetId, ::ShaderAsset* shaderAsset) override;
+    ::RuntimeMaterial* BuildMaterialFromRawAsset(::ContentManager* content, HeCppString path) override;
+    void InvalidateShaderResources(HeCppString shaderAssetId, ::ShaderAsset* shaderAsset) override;
 #endif
     ::RuntimeMaterial* BuildMaterialFromCooked(::PlatformMaterialAsset* materialAsset)
 #if !defined(HELENGINE_XBOX_HAS_SHADER_RUNTIME)
@@ -76,14 +76,14 @@ public:
 #endif
         ;
 
-    ::RuntimeMaterial* BuildMaterialFromCooked(std::string cookedAssetPath,
+    ::RuntimeMaterial* BuildMaterialFromCooked(HeCppString cookedAssetPath,
                                                ::IContentStreamSource* contentStreamSource)
 #if !defined(HELENGINE_XBOX_HAS_SHADER_RUNTIME)
         override
 #endif
         ;
 
-    ::RuntimeModel* BuildModelFromCooked(std::string cookedAssetPath,
+    ::RuntimeModel* BuildModelFromCooked(HeCppString cookedAssetPath,
                                          ::IContentStreamSource* contentStreamSource) override;
 
     ::RuntimeModel* BuildModelFromRaw(::ModelAsset* data) override;

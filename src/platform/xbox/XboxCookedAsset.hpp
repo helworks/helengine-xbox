@@ -24,7 +24,7 @@
 namespace helengine::xbox {
 
 // Opens, deserializes and closes one cooked asset. Returns the base type.
-::Asset* ReadCookedAsset(const std::string& path, ::IContentStreamSource* source,
+::Asset* ReadCookedAsset(const HeCppString& path, ::IContentStreamSource* source,
                          const char*& reason);
 
 // Releases the Asset base's own storage and deletes the object. Asset has a
@@ -43,7 +43,7 @@ void DestroyUnknownAsset(::Asset* asset);
 
 // Reads one cooked asset and narrows it to the expected generated type.
 template <typename TAsset>
-TAsset* ReadCookedAssetAs(const std::string& path, ::IContentStreamSource* source,
+TAsset* ReadCookedAssetAs(const HeCppString& path, ::IContentStreamSource* source,
                           const char*& reason) {
     ::Asset* asset = ReadCookedAsset(path, source, reason);
     if (asset == nullptr) {

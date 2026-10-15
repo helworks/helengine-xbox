@@ -15,7 +15,7 @@
 #include <cstring>
 namespace helengine::xbox {
 namespace {
-::ShaderBinaryAsset* SelectBinary(const ::ShaderAsset& shader, const std::string& name, ::ShaderStage stage, const std::string& variant) {
+::ShaderBinaryAsset* SelectBinary(const ::ShaderAsset& shader, const HeCppString& name, ::ShaderStage stage, const HeCppString& variant) {
     if (shader.Binaries == nullptr) return nullptr;
     ::ShaderBinaryAsset* selected = nullptr;
     for (int i = 0; i < shader.Binaries->Length; ++i) {
@@ -26,7 +26,7 @@ namespace {
     }
     return selected;
 }
-::ShaderProgramAsset* SelectProgram(const ::ShaderAsset& shader, const std::string& name, ::ShaderStage stage) {
+::ShaderProgramAsset* SelectProgram(const ::ShaderAsset& shader, const HeCppString& name, ::ShaderStage stage) {
     if (shader.Programs == nullptr) return nullptr;
     ::ShaderProgramAsset* selected = nullptr;
     for (int i = 0; i < shader.Programs->Length; ++i) {
@@ -60,9 +60,9 @@ XboxShaderRuntimeMaterial* XboxShaderRuntimeMaterial::Create(const ::ShaderMater
         if (binding->Size == 64 && binding->Members != nullptr && binding->Members->Length == 1 && (*binding->Members)[0] != nullptr &&
             (*binding->Members)[0]->Type == "float4x4" && (*binding->Members)[0]->Offset == 0) {
             if (!matrix.empty()) { reason = "Multiple engine transform buffers are unsupported"; return nullptr; }
-            matrix = binding->Name;
+            matrix = binding->Name.raw();
         } else {
-            buffers.push_back(binding->Name);
+            buffers.push_back(binding->Name.raw());
         }
     }
     XboxShaderArtifactView pixelArtifact{};
@@ -90,15 +90,15 @@ XboxShaderRuntimeMaterial* XboxShaderRuntimeMaterial::Create(const ::ShaderMater
                 if (binding->Name == reinterpret_cast<const char*>(record) && ReadShaderWord(record + 64) == 0) ++matches;
             }
             if (matches != 1) { reason = "Fragment uniform metadata disagrees with compiler bindings"; return nullptr; }
-            for (const std::string& previous : pixelBuffers) if (previous == binding->Name) return nullptr;
-            pixelBuffers.push_back(binding->Name);
+            for (const std::string& previous : pixelBuffers) if (previous == binding->Name.raw()) return nullptr;
+            pixelBuffers.push_back(binding->Name.raw());
         } else if (binding->Type == ::ShaderResourceType::Texture2D) {
             reason = "Texture metadata disagrees with compiler-assigned resource binding";
-            if (matchedTexture || textureName.empty() || binding->Name != textureName) return nullptr;
+            if (matchedTexture || textureName.empty() || binding->Name.raw() != textureName) return nullptr;
             matchedTexture = true;
         } else if (binding->Type == ::ShaderResourceType::Sampler) {
             reason = "Sampler metadata disagrees with compiler-assigned resource binding";
-            if (matchedSampler || samplerName.empty() || binding->Name != samplerName) return nullptr;
+            if (matchedSampler || samplerName.empty() || binding->Name.raw() != samplerName) return nullptr;
             matchedSampler = true;
         } else {
             return nullptr;

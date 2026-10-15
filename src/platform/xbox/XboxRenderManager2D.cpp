@@ -117,7 +117,7 @@ void XboxRenderManager2D::Draw() {
 }
 
 ::RuntimeTexture* XboxRenderManager2D::BuildTextureFromCooked(
-    std::string cookedAssetPath, ::IContentStreamSource* contentStreamSource) {
+    HeCppString cookedAssetPath, ::IContentStreamSource* contentStreamSource) {
     // Scene loading resolves sprite textures before the render queue is drawn.
     // Keep the decoded pixels in GPU-visible memory; returning null here would
     // fail scene loading, while retaining only the extent would yield blank or

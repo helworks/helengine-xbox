@@ -56,7 +56,7 @@ void Fail(const char* message) {
     helengine::xbox::CopyBounded(helengine::xbox::g_lastCoreFailureMessage,
                                  message,
                                  helengine::xbox::kFailureMessageCapacity);
-    ++helengine::xbox::g_coreFailureCount;
+    helengine::xbox::g_coreFailureCount = helengine::xbox::g_coreFailureCount + 1u;
 
     // Leave the 3D pipeline and show the text console, so the message is
     // readable on a plain TV with no debugger attached. pbkit tolerates this

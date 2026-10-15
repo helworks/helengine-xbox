@@ -197,8 +197,12 @@ SHADER_OBJS = \
 	$(SHADER_DIR)/sprite_vsh.inl \
 	$(SHADER_DIR)/sprite_psh.inl
 
+# Authored platform sources include generated runtime headers, whose callable
+# constraints require the same C++20 language mode used for the generated Core.
+# Diagnostic sources do not include that runtime and retain their C++17 baseline.
+HELENGINE_CXX_STANDARD := $(if $(filter Authored,$(MODE)),c++20,c++17)
 HELENGINE_CXXFLAGS := \
-	-std=c++17 -Wall -Wextra -Werror $(HELENGINE_OPTFLAGS) \
+	-std=$(HELENGINE_CXX_STANDARD) -Wall -Wextra -Werror $(HELENGINE_OPTFLAGS) \
 	-I$(SOURCE_ROOT)/src \
 	-DHELENGINE_XBOX_PROBE=$(PROBE_VALUE) \
 	-DHELENGINE_XBOX_STOP_AFTER_FRAMES=$(STOP_AFTER_FRAMES)u \

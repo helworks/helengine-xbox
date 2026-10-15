@@ -32,7 +32,7 @@ public:
     explicit XboxContentStreamSource(const char* contentRootPath = "D:\\");
 
     // Returns a memory-backed stream owning its own copy of the file, or null.
-    ::Stream* OpenRead(std::string assetPath) override;
+    ::Stream* OpenRead(HeCppString assetPath) override;
 
     // Counters and the last failure reason are readable without a debugger and
     // keep the host's report honest about what was actually served.

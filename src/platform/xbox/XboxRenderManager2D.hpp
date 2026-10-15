@@ -42,7 +42,7 @@ public:
     void Dispose() override;
     void InstallRenderer(::helengine::xbox::XboxRasterRenderer* renderer, ::IContentStreamSource* source = nullptr);
 
-    ::RuntimeTexture* BuildTextureFromCooked(std::string cookedAssetPath,
+    ::RuntimeTexture* BuildTextureFromCooked(HeCppString cookedAssetPath,
                                              ::IContentStreamSource* contentStreamSource) override;
     ::RuntimeTexture* BuildTextureFromRaw(::TextureAsset* data) override;
 
