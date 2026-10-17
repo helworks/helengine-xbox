@@ -16,7 +16,7 @@ XboxSpriteStatus TryBuildXboxSpriteQuad(const XboxSpriteInput& input, XboxSprite
         input.RealTextureHeight > input.StoredTextureHeight) {
         return XboxSpriteStatus::InvalidExtent;
     }
-    if (input.Width <= 0.0f || input.Height <= 0.0f) return XboxSpriteStatus::InvalidSize;
+    if (!input.HasResolvedCorners && (input.Width <= 0.0f || input.Height <= 0.0f)) return XboxSpriteStatus::InvalidSize;
     if (input.SourceX < 0.0f || input.SourceY < 0.0f || input.SourceWidth <= 0.0f ||
         input.SourceHeight <= 0.0f || input.SourceX > 1.0f || input.SourceY > 1.0f ||
         input.SourceWidth > 1.0f - input.SourceX || input.SourceHeight > 1.0f - input.SourceY) {
@@ -25,8 +25,8 @@ XboxSpriteStatus TryBuildXboxSpriteQuad(const XboxSpriteInput& input, XboxSprite
 
     const float centerX = input.X + input.Width * 0.5f;
     const float centerY = input.Y + input.Height * 0.5f;
-    const float cosine = std::cos(input.RotationRadians);
-    const float sine = std::sin(input.RotationRadians);
+    const float cosine = input.HasResolvedCorners ? 1.0f : std::cos(input.RotationRadians);
+    const float sine = input.HasResolvedCorners ? 0.0f : std::sin(input.RotationRadians);
     if (!std::isfinite(centerX) || !std::isfinite(centerY) || !std::isfinite(cosine) ||
         !std::isfinite(sine)) {
         return XboxSpriteStatus::NonFinite;
@@ -52,8 +52,8 @@ XboxSpriteStatus TryBuildXboxSpriteQuad(const XboxSpriteInput& input, XboxSprite
     XboxSpriteQuad candidate{};
     for (unsigned i = 0; i < 4; ++i) {
         XboxSpriteVertex& vertex = candidate.Vertices[i];
-        vertex.X = centerX + localX[i] * cosine - localY[i] * sine;
-        vertex.Y = centerY + localX[i] * sine + localY[i] * cosine;
+        vertex.X = input.HasResolvedCorners ? input.CornerX[i] : centerX + localX[i] * cosine - localY[i] * sine;
+        vertex.Y = input.HasResolvedCorners ? input.CornerY[i] : centerY + localX[i] * sine + localY[i] * cosine;
         vertex.U = sourceU[i] * uScale;
         vertex.V = sourceV[i] * vScale;
         vertex.R = tint[0];

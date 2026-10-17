@@ -565,6 +565,22 @@ bool TestXboxSpriteGeometry() {
     CHECK(Near(quad.Vertices[1].X - quad.Vertices[0].X, 64.0f));
     CHECK(Near(quad.Vertices[3].Y - quad.Vertices[0].Y, 32.0f));
 
+    XboxSpriteInput affine = input;
+    affine.HasResolvedCorners = true;
+    const float cornerX[4] = {30,10,18,38};
+    const float cornerY[4] = {20,25,65,60};
+    for (unsigned i = 0; i < 4; ++i) {
+        affine.CornerX[i] = cornerX[i];
+        affine.CornerY[i] = cornerY[i];
+    }
+    CHECK(TryBuildXboxSpriteQuad(affine, quad) == XboxSpriteStatus::Ok);
+    for (unsigned i = 0; i < 4; ++i) {
+        CHECK(Near(quad.Vertices[i].X, cornerX[i]) && Near(quad.Vertices[i].Y, cornerY[i]));
+    }
+    CHECK(Near(quad.Vertices[2].U, 2.0f) && Near(quad.Vertices[2].V, 4.0f));
+    affine.CornerY[3] = NAN;
+    CHECK(TryBuildXboxSpriteQuad(affine, quad) == XboxSpriteStatus::NonFinite);
+
     XboxSpriteInput invalid = input;
     invalid.Width = 0.0f;
     CHECK(TryBuildXboxSpriteQuad(invalid, quad) == XboxSpriteStatus::InvalidSize);

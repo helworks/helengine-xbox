@@ -12,6 +12,8 @@
 #include "CameraComponent.hpp"
 #include "Core.hpp"
 #include "Entity.hpp"
+#include "Batch2DGeometry.hpp"
+#include "SpriteQuad2D.hpp"
 #include "ICamera.hpp"
 #include "IDrawable2D.hpp"
 #include "IRenderQueue2D.hpp"
@@ -232,19 +234,16 @@ void XboxRenderManager2D::SubmitSprite(::ISpriteDrawable2D* sprite) {
         RecordUnsupported("disposed or invalid sprite texture");
         return;
     }
-    const ::float3 position = owner->get_Position();
-    const ::float3 scale = owner->get_Scale();
-    const ::float4 orientation = owner->get_Orientation();
-    const ::int2 size = sprite->get_Size();
+    const ::SpriteQuad2D geometry = ::Batch2DGeometry::ResolveSpriteQuad(sprite);
     const ::float4 source = sprite->get_SourceRect();
     const ::byte4 tint = sprite->get_Color();
-    const bool explicitSize = size.X > 0 && size.Y > 0;
     XboxSpriteInput input{};
-    input.X = position.X;
-    input.Y = position.Y;
-    input.Width = static_cast<float>(explicitSize ? size.X : static_cast<int32_t>(layout.RealWidth)) * scale.X;
-    input.Height = static_cast<float>(explicitSize ? size.Y : static_cast<int32_t>(layout.RealHeight)) * scale.Y;
-    input.RotationRadians = 2.0f * std::atan2(orientation.Z, orientation.W);
+    input.HasResolvedCorners = true;
+    const ::float2 corners[]{geometry.TopLeft, geometry.TopRight, geometry.BottomRight, geometry.BottomLeft};
+    for (unsigned i = 0; i < 4; ++i) {
+        input.CornerX[i] = corners[i].X;
+        input.CornerY[i] = corners[i].Y;
+    }
     input.SourceX = source.X;
     input.SourceY = source.Y;
     input.SourceWidth = source.Z;

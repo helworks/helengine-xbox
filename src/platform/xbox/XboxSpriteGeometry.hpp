@@ -19,6 +19,12 @@ struct XboxSpriteInput {
     std::uint32_t StoredTextureWidth;
     std::uint32_t StoredTextureHeight;
     std::uint8_t Tint[4];
+    /// Uses already resolved TL/TR/BR/BL positions instead of the legacy rectangle.
+    bool HasResolvedCorners = false;
+    /// Pixel X coordinates paired with CornerY.
+    float CornerX[4]{};
+    /// Pixel Y coordinates paired with CornerX.
+    float CornerY[4]{};
 };
 
 struct XboxSpriteVertex {
