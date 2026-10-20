@@ -13,7 +13,7 @@ public sealed class XboxMixedMaterialTests {
     public void ClassicColourSurvivesShaderProfile(string profile) {
         var request = new PlatformMaterialCookRequest("CubeTestSolid", "materials/cube.hasset", "xbox",
             "release", profile, XboxMaterialSchemaIds.StandardSchemaId,
-            new Dictionary<string, string> { ["base-color"] = "#2468ACFF" });
+            new Dictionary<string, string> { ["base-color"] = "#2468ACFF" }, numericPolicy: global::helengine.NumericPrecisionPolicy.Default);
         var result = new XboxMaterialCooker().Cook(request);
         using var stream = new MemoryStream(result.CookedMaterialBytes);
         var material = Assert.IsType<PlatformMaterialAsset>(AssetSerializer.Deserialize(stream));
