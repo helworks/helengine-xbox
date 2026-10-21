@@ -148,7 +148,7 @@ public static class XboxPlatformDefinitionFactory {
             [new PlatformStorageProfileDefinition("xbox-xiso-package", "XISO Package", PlatformStorageProfileKind.LooseFiles, "xbox-xiso-package", false)],
             [new PlatformMediaProfileDefinition("xbox-dvd", "Xbox DVD Image", PlatformMediaLayoutKind.InstallTree, false, true)],
             new RuntimeGenerationContract(compiledShaders ? RuntimeMaterialResolutionMode.RawShaderBacked : RuntimeMaterialResolutionMode.CookedPlatformOwned,
-                true, PackagedPathPolicy.ContentRelativeOnly, ["HELENGINE_CODEGEN_FATAL_ONLY"]),
+                true, PackagedPathPolicy.ContentRelativeOnly, ["HELENGINE_CODEGEN_FATAL_ONLY"], false, requiresCookedViewportLayout: true),
             assetCookCapabilities: CreateAssetCookCapabilities());
     }
 

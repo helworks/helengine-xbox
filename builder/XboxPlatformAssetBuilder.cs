@@ -9,7 +9,12 @@ using helengine.baseplatform.Results;
 namespace helengine.xbox.builder;
 
 /// <summary>Platform discovery and build contract for the Original Xbox target.</summary>
-public sealed class XboxPlatformAssetBuilder : IPlatformAssetBuilder, IShaderBackendRegistryContributor, IPlatformShaderArtifactBuilder, IPlatformRendererShaderDependencyProvider, IPlatformRawShaderMaterialPackagingPolicy {
+public sealed class XboxPlatformAssetBuilder : IPlatformAssetBuilder, IShaderBackendRegistryContributor, IPlatformShaderArtifactBuilder, IPlatformRendererShaderDependencyProvider, IPlatformRawShaderMaterialPackagingPolicy, IPlatformLayoutTargetProvider {
+    /// <summary>Returns the 640 by 480 framebuffer required and validated by XboxVideo.</summary>
+    public PlatformLayoutTarget ResolveLayoutTarget(PlatformLayoutTargetRequest request) {
+        ArgumentNullException.ThrowIfNull(request);
+        return new PlatformLayoutTarget(640, 480, 1d, false, 0d, 1d);
+    }
     readonly XboxMaterialCooker MaterialCooker = new();
     readonly IXboxNativeBuildExecutor NativeBuildExecutor;
 
