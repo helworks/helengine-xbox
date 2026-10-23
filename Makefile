@@ -1,9 +1,8 @@
 # Native Original Xbox build for the Helengine Xbox v0.1 cube probe.
 #
 # This Makefile is included into the pinned nxdk build machinery
-# ($(NXDK_DIR)/Makefile). nxdk places object files beside their sources, so
-# scripts/build.ps1 runs it on a staged copy of the source tree inside the
-# per-invocation build directory (never on the repository worktree).
+# ($(NXDK_DIR)/Makefile). Source files remain in the real read-only checkout;
+# the overridden object/dependency rules and shader headers use external roots.
 #
 # Inputs (validated before any compilation):
 #   NXDK_DIR           pinned nxdk checkout with built tools/libraries
@@ -191,11 +190,12 @@ SRCS += \
 	$(PLATFORM_DIR)/XboxRuntimeHost.cpp
 endif
 
+GENERATED_SHADER_ROOT ?= $(NATIVE_OBJECT_ROOT)/generated-shaders
 SHADER_OBJS = \
-	$(SHADER_DIR)/unlit_vsh.inl \
-	$(SHADER_DIR)/unlit_psh.inl \
-	$(SHADER_DIR)/sprite_vsh.inl \
-	$(SHADER_DIR)/sprite_psh.inl
+	$(GENERATED_SHADER_ROOT)/shaders/unlit_vsh.inl \
+	$(GENERATED_SHADER_ROOT)/shaders/unlit_psh.inl \
+	$(GENERATED_SHADER_ROOT)/shaders/sprite_vsh.inl \
+	$(GENERATED_SHADER_ROOT)/shaders/sprite_psh.inl
 
 # Authored platform sources include generated runtime headers, whose callable
 # constraints require the same C++20 language mode used for the generated Core.
@@ -204,6 +204,7 @@ HELENGINE_CXX_STANDARD := $(if $(filter Authored,$(MODE)),c++20,c++17)
 HELENGINE_CXXFLAGS := \
 	-std=$(HELENGINE_CXX_STANDARD) -Wall -Wextra -Werror $(HELENGINE_OPTFLAGS) \
 	-I$(SOURCE_ROOT)/src \
+	-I$(GENERATED_SHADER_ROOT) \
 	-DHELENGINE_XBOX_PROBE=$(PROBE_VALUE) \
 	-DHELENGINE_XBOX_STOP_AFTER_FRAMES=$(STOP_AFTER_FRAMES)u \
 	-DHELENGINE_XBOX_POSE=$(POSE_VALUE) \
@@ -245,13 +246,30 @@ endif
 override CXXFLAGS += $(HELENGINE_CXXFLAGS)
 override LDFLAGS += -map:$(CURDIR)/main.map
 
+# nxdk expands OBJS when it declares main.exe's prerequisites, so these must
+# override its assignments before the include. Keep source paths unchanged.
+override OBJS = $(addprefix $(NATIVE_OBJECT_ROOT)/,$(addsuffix .obj,$(basename $(patsubst $(SOURCE_ROOT)/%,%,$(SRCS)))))
+override DEPS = $(addsuffix .d,$(patsubst $(SOURCE_ROOT)/%,$(NATIVE_OBJECT_ROOT)/%,$(filter %.c %.cpp,$(SRCS))))
 include $(NXDK_DIR)/Makefile
 
+$(NATIVE_OBJECT_ROOT)/%.obj: $(SOURCE_ROOT)/%.cpp
+	@echo "[ CXX      ] $@"
+	@mkdir -p '$(@D)'
+	$(VE)$(CXX) $(NXDK_CXXFLAGS) $(CXXFLAGS) -MD -MP -MT '$@' -MF '$(patsubst %.obj,%.cpp.d,$@)' -c -o '$@' '$<'
+
+$(NATIVE_OBJECT_ROOT)/%.obj: $(SOURCE_ROOT)/%.c
+	@echo "[ CC       ] $@"
+	@mkdir -p '$(@D)'
+	$(VE)$(CC) $(NXDK_CFLAGS) $(CFLAGS) -MD -MP -MT '$@' -MF '$(patsubst %.obj,%.c.d,$@)' -c -o '$@' '$<'
+
+$(NATIVE_OBJECT_ROOT)/%.obj: $(SOURCE_ROOT)/%.s
+	@echo "[ AS       ] $@"
+	@mkdir -p '$(@D)'
+	$(VE)$(AS) $(NXDK_ASFLAGS) $(ASFLAGS) -c -o '$@' '$<'
+
 ifeq ($(MODE),Authored)
-# The generated Core is one large unity translation unit. It is compiled here
-# rather than added to SRCS because nxdk writes each object beside its source,
-# and the generated root is mounted read-only; objects therefore land in the
-# invocation directory instead.
+# The generated Core is one large unity translation unit. It keeps its separate
+# compiler flags and external object while the generated input stays read-only.
 #
 # Its flags deliberately differ from the platform sources:
 #   -std=c++20  generated code uses C++20 library facilities
@@ -316,24 +334,36 @@ endif
 #   unlit.vsh  NV_vertex_program 1.1 text  -> vp20compiler -> NV2A microcode dwords
 #   unlit.psh  RC1.0 register-combiner text -> fp20compiler -> pbkit push calls
 #   sprite.vsh / sprite.psh use the same tools for the authored textured-quad pass.
-$(SHADER_DIR)/unlit_vsh.inl: $(SHADER_DIR)/unlit.vsh $(VP20COMPILER)
+$(GENERATED_SHADER_ROOT)/shaders/unlit_vsh.inl: $(SHADER_DIR)/unlit.vsh $(VP20COMPILER)
 	@echo "[ VP20     ] $@"
-	$(VE)$(VP20COMPILER) '$<' > '$@' || { rm -f '$@'; exit 1; }
+	@mkdir -p '$(@D)'
+	$(VE)tr -d '\r' < '$<' > '$@.input'
+	$(VE)$(VP20COMPILER) '$@.input' > '$@' || { rm -f '$@' '$@.input'; exit 1; }
+	@rm -f '$@.input'
 	@test -s '$@'
 
-$(SHADER_DIR)/unlit_psh.inl: $(SHADER_DIR)/unlit.psh $(FP20COMPILER)
+$(GENERATED_SHADER_ROOT)/shaders/unlit_psh.inl: $(SHADER_DIR)/unlit.psh $(FP20COMPILER)
 	@echo "[ FP20     ] $@"
-	$(VE)$(FP20COMPILER) '$<' > '$@' || { rm -f '$@'; exit 1; }
+	@mkdir -p '$(@D)'
+	$(VE)tr -d '\r' < '$<' > '$@.input'
+	$(VE)$(FP20COMPILER) '$@.input' > '$@' || { rm -f '$@' '$@.input'; exit 1; }
+	@rm -f '$@.input'
 	@test -s '$@'
 
-$(SHADER_DIR)/sprite_vsh.inl: $(SHADER_DIR)/sprite.vsh $(VP20COMPILER)
+$(GENERATED_SHADER_ROOT)/shaders/sprite_vsh.inl: $(SHADER_DIR)/sprite.vsh $(VP20COMPILER)
 	@echo "[ VP20     ] $@"
-	$(VE)$(VP20COMPILER) '$<' > '$@' || { rm -f '$@'; exit 1; }
+	@mkdir -p '$(@D)'
+	$(VE)tr -d '\r' < '$<' > '$@.input'
+	$(VE)$(VP20COMPILER) '$@.input' > '$@' || { rm -f '$@' '$@.input'; exit 1; }
+	@rm -f '$@.input'
 	@test -s '$@'
 
-$(SHADER_DIR)/sprite_psh.inl: $(SHADER_DIR)/sprite.psh $(FP20COMPILER)
+$(GENERATED_SHADER_ROOT)/shaders/sprite_psh.inl: $(SHADER_DIR)/sprite.psh $(FP20COMPILER)
 	@echo "[ FP20     ] $@"
-	$(VE)$(FP20COMPILER) '$<' > '$@' || { rm -f '$@'; exit 1; }
+	@mkdir -p '$(@D)'
+	$(VE)tr -d '\r' < '$<' > '$@.input'
+	$(VE)$(FP20COMPILER) '$@.input' > '$@' || { rm -f '$@' '$@.input'; exit 1; }
+	@rm -f '$@.input'
 	@test -s '$@'
 
 .PHONY: print-config

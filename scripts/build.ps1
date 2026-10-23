@@ -98,7 +98,8 @@ function Read-KeyValueFile {
 
 function Get-RelativePath {
     param([string]$Root, [string]$Path)
-    $rootPrefix = $Root.TrimEnd('\', '/') + '\'
+    $rootPrefix = [IO.Path]::GetFullPath($Root).TrimEnd([IO.Path]::DirectorySeparatorChar, [IO.Path]::AltDirectorySeparatorChar) + [IO.Path]::DirectorySeparatorChar
+    $Path = [IO.Path]::GetFullPath($Path)
     if (-not $Path.StartsWith($rootPrefix, [StringComparison]::OrdinalIgnoreCase)) { throw "$Path is not under $Root" }
     return $Path.Substring($rootPrefix.Length).Replace('\', '/')
 }
@@ -106,7 +107,9 @@ function Get-RelativePath {
 function Get-SourceFingerprint {
     $files = @(
         Get-Item -LiteralPath (Join-Path $repoRoot 'Makefile')
-        Get-ChildItem -LiteralPath (Join-Path $repoRoot 'src') -File -Recurse | Where-Object { $_.Extension -ne '.inl' }
+        Get-Item -LiteralPath (Join-Path $repoRoot 'scripts/build.ps1')
+        Get-Item -LiteralPath (Join-Path $repoRoot 'scripts/xbox-sdk-identity.ps1')
+        Get-ChildItem -LiteralPath (Join-Path $repoRoot 'src') -File -Recurse
     )
     $lines = @(
         foreach ($file in $files) {
@@ -122,9 +125,9 @@ function Get-SourceFingerprint {
 }
 
 # --- Validation before anything is created ----------------------------------
-$repoPrefix = $repoRoot.TrimEnd('\') + '\'
-$ownedBuildPrefix = [IO.Path]::GetFullPath((Join-Path $repoRoot '.xbox\builds')).TrimEnd('\') + '\'
-$ownedCachePrefix = [IO.Path]::GetFullPath((Join-Path $repoRoot '.xbox')).TrimEnd('\') + '\'
+$repoPrefix = $repoRoot.TrimEnd([IO.Path]::DirectorySeparatorChar, [IO.Path]::AltDirectorySeparatorChar) + [IO.Path]::DirectorySeparatorChar
+$ownedBuildPrefix = [IO.Path]::GetFullPath((Join-Path $repoRoot '.xbox/builds')).TrimEnd([IO.Path]::DirectorySeparatorChar, [IO.Path]::AltDirectorySeparatorChar) + [IO.Path]::DirectorySeparatorChar
+$ownedCachePrefix = [IO.Path]::GetFullPath((Join-Path $repoRoot '.xbox')).TrimEnd([IO.Path]::DirectorySeparatorChar, [IO.Path]::AltDirectorySeparatorChar) + [IO.Path]::DirectorySeparatorChar
 if ($OutputRoot.Equals($repoRoot, [StringComparison]::OrdinalIgnoreCase) -or
     ($OutputRoot.StartsWith($repoPrefix, [StringComparison]::OrdinalIgnoreCase) -and
      -not $OutputRoot.StartsWith($ownedBuildPrefix, [StringComparison]::OrdinalIgnoreCase))) {
@@ -215,8 +218,10 @@ foreach ($key in @('LocalImageTag', 'LocalImageId', 'NxdkCommit', 'NxdkDirInImag
     if (-not $lock.ContainsKey($key) -or [string]::IsNullOrWhiteSpace($lock[$key])) { throw "Toolchain lock lacks $key" }
 }
 if ($DockerImage -ne $lock['LocalImageTag']) { throw "Docker image tag '$DockerImage' is not the locked tag '$($lock['LocalImageTag'])'." }
-$actualImageId = ((Invoke-CheckedNative 'docker' @('image', 'inspect', $DockerImage, '--format', '{{.Id}}')) -join '').Trim()
-if ($actualImageId -ne $lock['LocalImageId']) { throw "Toolchain image ID mismatch. Expected $($lock['LocalImageId']), found $actualImageId. Run scripts/prepare_toolchain.ps1." }
+. (Join-Path $PSScriptRoot 'xbox-sdk-identity.ps1')
+$sdkIdentity = Get-XboxSdkImageIdentity -CanonicalImageId $lock['LocalImageId'] -LockedTag $DockerImage
+$actualImageId = $sdkIdentity.CanonicalImageId
+$localImageId = $sdkIdentity.LocalImageId
 $expectedNxdkCommit = $lock['NxdkCommit']
 $actualNxdkCommit = ((Invoke-CheckedNative 'git' @('-c', "safe.directory=$NxdkPath", '-C', $NxdkPath, 'rev-parse', 'HEAD')) -join '').Trim()
 if ($actualNxdkCommit -ne $expectedNxdkCommit) { throw "nxdk checkout commit mismatch. Expected $expectedNxdkCommit, found $actualNxdkCommit." }
@@ -233,37 +238,11 @@ foreach ($receiptPath in @((Join-Path $OutputRoot 'build-info.json'), (Join-Path
     if (Test-Path -LiteralPath $receiptPath -PathType Leaf) { Remove-Item -LiteralPath $receiptPath -Force }
 }
 
-# Keep the source mirror (and nxdk's source-adjacent objects) stable across
-# invocation directories. Identical files retain their timestamps so make can
-# reuse its dependency-tracked object outputs.
-$nativeSourceRoot = Join-Path $NativeObjectCacheRoot 'source'
+# The actual checkout is read-only. Only objects, dependency files and generated
+# shader compiler inputs/headers belong in the external native cache.
 $nativeObjectRoot = Join-Path $NativeObjectCacheRoot 'objects'
-New-Item -ItemType Directory -Force -Path $nativeSourceRoot, $nativeObjectRoot | Out-Null
-$sourceFiles = @(Get-ChildItem -LiteralPath (Join-Path $repoRoot 'src') -File -Recurse)
-$expected = @{}
-foreach ($sourceFile in $sourceFiles) {
-    $relative = Get-RelativePath -Root (Join-Path $repoRoot 'src') -Path $sourceFile.FullName
-    $destination = Join-Path (Join-Path $nativeSourceRoot 'src') $relative
-    $expected[$destination] = $true
-    $parent = Split-Path -Parent $destination
-    New-Item -ItemType Directory -Force -Path $parent | Out-Null
-    $copyBytes = [IO.File]::ReadAllBytes($sourceFile.FullName)
-    if ($sourceFile.Extension -in @('.vsh', '.psh')) {
-        $copyText = [Text.Encoding]::UTF8.GetString($copyBytes).Replace("`r`n", "`n").Replace("`r", "`n")
-        $copyBytes = (New-Object Text.UTF8Encoding($false)).GetBytes($copyText)
-    }
-    $needsCopy = -not (Test-Path -LiteralPath $destination)
-    if (-not $needsCopy) {
-        $existingBytes = [IO.File]::ReadAllBytes($destination)
-        $needsCopy = [Convert]::ToBase64String($existingBytes) -ne [Convert]::ToBase64String($copyBytes)
-    }
-    if ($needsCopy) {
-        [IO.File]::WriteAllBytes($destination, $copyBytes)
-    }
-}
-Get-ChildItem -LiteralPath (Join-Path $nativeSourceRoot 'src') -File -Recurse -ErrorAction SilentlyContinue |
-    Where-Object { $_.Extension -ne '.inl' -and -not $expected.ContainsKey($_.FullName) } |
-    Remove-Item -Force
+$generatedShaderRoot = Join-Path $NativeObjectCacheRoot 'generated-shaders'
+New-Item -ItemType Directory -Force -Path $nativeObjectRoot, $generatedShaderRoot | Out-Null
 $generatedCoreBefore = Get-GeneratedCoreFingerprint
 $cookedContentBefore = Get-CookedContentFingerprint
 Set-Content -LiteralPath (Join-Path $logRoot 'generated-core-hashes-before.txt') -Value $generatedCoreBefore.Lines -Encoding UTF8
@@ -276,7 +255,7 @@ $oldFingerprint = if (Test-Path -LiteralPath $fingerprintPath) { (Get-Content -L
 if ($oldFingerprint -ne $fingerprintHash) {
     Get-ChildItem -LiteralPath $NativeObjectCacheRoot -File -Recurse -ErrorAction SilentlyContinue |
         Where-Object { $_.Extension -in @('.o', '.obj', '.d') } | Remove-Item -Force
-    Get-ChildItem -LiteralPath (Join-Path $nativeSourceRoot 'src/platform/xbox/shaders') -File -Filter '*.inl' -ErrorAction SilentlyContinue |
+    Get-ChildItem -LiteralPath $generatedShaderRoot -File -Recurse -Filter '*.inl' -ErrorAction SilentlyContinue |
         Remove-Item -Force
 }
 
@@ -302,28 +281,15 @@ Set-Content -LiteralPath (Join-Path $logRoot 'environment.txt') -Value $environm
 $fingerprintBefore = Get-SourceFingerprint
 Set-Content -LiteralPath (Join-Path $logRoot 'source-hashes-before.txt') -Value $fingerprintBefore.Lines -Encoding UTF8
 
-# Stage the build inputs so nxdk's beside-the-source object files land in the
-# invocation directory and the repository worktree stays untouched.
-Copy-Item -LiteralPath (Join-Path $repoRoot 'Makefile') -Destination (Join-Path $workRoot 'Makefile')
-# GNU make and the nxdk shader compilers run on Linux and treat a trailing CR
-# as content; normalize only the staged copies (never the repository files).
-$lineEndingSensitive = @(Get-Item -LiteralPath (Join-Path $workRoot 'Makefile'))
-foreach ($file in $lineEndingSensitive) {
-    $bytes = [IO.File]::ReadAllBytes($file.FullName)
-    if ($bytes -contains 13) {
-        $text = [Text.Encoding]::UTF8.GetString($bytes).Replace("`r`n", "`n").Replace("`r", "`n")
-        [IO.File]::WriteAllText($file.FullName, $text, (New-Object Text.UTF8Encoding($false)))
-    }
-}
-
 # --- Container build ---------------------------------------------------------
 $disableCullingValue = if ($DisableCulling) { '1' } else { '0' }
 $reverseValue = if ($ReverseTriangleOrder) { '1' } else { '0' }
 $makeArguments = @(
     "NXDK_DIR=$nxdkDir",
     "MODE=$Mode",
-    'SOURCE_ROOT=/nativecache/source',
+    'SOURCE_ROOT=/src',
     'NATIVE_OBJECT_ROOT=/nativecache/objects',
+    'GENERATED_SHADER_ROOT=/nativecache/generated-shaders',
     "CONFIGURATION=$Configuration",
     "PROBE=$Probe",
     "STOP_AFTER_FRAMES=$StopAfterFrames",
@@ -342,11 +308,12 @@ $innerCommand = 'set -e; ' +
     'recorded="$(cat ' + $nxdkDir + '/HELENGINE_NXDK_COMMIT)"; ' +
     'test "$recorded" = "' + $expectedNxdkCommit + '" || { echo "image nxdk commit $recorded != ' + $expectedNxdkCommit + '" >&2; exit 90; }; ' +
     'cd /work; ' +
-    'make ' + ($makeArguments -join ' ') + ' print-config; ' +
-    'make -j' + $Jobs + ' ' + ($makeArguments -join ' ') + ' all; ' +
+    'make -f /src/Makefile ' + ($makeArguments -join ' ') + ' print-config; ' +
+    'make -f /src/Makefile -j' + $Jobs + ' ' + ($makeArguments -join ' ') + ' all; ' +
     'ls -l /work/disc /work/game.iso'
 $dockerArgs = @(
     'run', '--rm', '--workdir', '/work',
+    '--mount', "type=bind,source=$repoRoot,target=/src,readonly",
     '--mount', "type=bind,source=$workRoot,target=/work",
     '--mount', "type=bind,source=$NativeObjectCacheRoot,target=/nativecache"
 )
@@ -358,7 +325,7 @@ if ($Mode -eq 'Authored') {
 }
 $dockerArgs += @(
     '--entrypoint', '/bin/sh',
-    $DockerImage,
+    $localImageId,
     '-c', $innerCommand
 )
 $buildLog = Join-Path $logRoot 'docker-build.log'
@@ -405,7 +372,7 @@ else {
 $listLog = Join-Path $logRoot 'xiso-listing.txt'
 $listExit = Invoke-NativeToLog -FilePath 'docker' -ArgumentList @(
     'run', '--rm', '--mount', "type=bind,source=$workRoot,target=/work,readonly",
-    '--entrypoint', "$nxdkDir/tools/extract-xiso/build/extract-xiso", $DockerImage, '-l', '/work/game.iso'
+    '--entrypoint', "$nxdkDir/tools/extract-xiso/build/extract-xiso", $localImageId, '-l', '/work/game.iso'
 ) -LogPath $listLog
 if ($listExit -ne 0) { throw "extract-xiso -l failed with exit code $listExit. See $listLog" }
 $listing = Get-Content -LiteralPath $listLog
@@ -437,7 +404,7 @@ foreach ($optional in @('main.map', 'main.exe', 'main.pdb')) {
 }
 $shaderOut = Join-Path $artifactRoot 'generated-shaders'
 New-Item -ItemType Directory -Path $shaderOut -Force | Out-Null
-Get-ChildItem -LiteralPath (Join-Path $nativeSourceRoot 'src\platform\xbox\shaders') -File -Filter '*.inl' | Copy-Item -Destination $shaderOut
+Get-ChildItem -LiteralPath (Join-Path $generatedShaderRoot 'shaders') -File -Filter '*.inl' | Copy-Item -Destination $shaderOut
 
 $artifactRecords = @(
     foreach ($file in Get-ChildItem -LiteralPath $artifactRoot -File -Recurse) {
@@ -465,6 +432,10 @@ $buildInfo = [ordered]@{
         nxdkRepository = $lock['NxdkRepository']
         dockerImage = $DockerImage
         dockerImageId = $actualImageId
+        dockerLocalImageId = $localImageId
+        dockerIndexSha256 = $sdkIdentity.IndexSha256
+        dockerManifestSha256 = $sdkIdentity.ManifestSha256
+        dockerConfigSha256 = $sdkIdentity.ConfigSha256
         upstreamBaseImage = $lock['UpstreamBaseImage']
         compiler = $lock['CompilerC']
         linker = $lock['Linker']
