@@ -14,9 +14,9 @@ foreach($name in @('Get-RelativePath','Get-SourceFingerprint')){
     . ([scriptblock]::Create($node.Extent.Text))
 }
 $fingerprint=Get-SourceFingerprint
-foreach($input in @('Makefile','src/main.cpp','src/platform/xbox/XboxShaderConstantUpload.inl')){
-    $hash=(Get-FileHash -LiteralPath (Join-Path $repoRoot $input) -Algorithm SHA256).Hash.ToLowerInvariant()
-    Check ($fingerprint.Lines -ccontains "$input=$hash") "Fingerprint must read actual checkout bytes: $input"
+foreach($sourceInput in @('Makefile','src/main.cpp','src/platform/xbox/XboxShaderConstantUpload.inl')){
+    $hash=(Get-FileHash -LiteralPath (Join-Path $repoRoot $sourceInput) -Algorithm SHA256).Hash.ToLowerInvariant()
+    Check ($fingerprint.Lines -ccontains "$sourceInput=$hash") "Fingerprint must read actual checkout bytes: $sourceInput"
 }
 $local=Join-Path $FixtureRoot 'local uncommitted input.cpp'
 [IO.File]::WriteAllText($local,'first local contents')
@@ -24,9 +24,9 @@ $before=(Get-FileHash $local -Algorithm SHA256).Hash
 [IO.File]::WriteAllText($local,'changed local contents')
 Check ((Get-FileHash $local -Algorithm SHA256).Hash -cne $before) 'Local fixture mutation was not observed.'
 Check ((Get-RelativePath -Root $FixtureRoot -Path $local) -ceq 'local uncommitted input.cpp') 'Host path fingerprint lost local input.'
-$isWindows=[IO.Path]::DirectorySeparatorChar -eq '\'
+$windowsHost=[IO.Path]::DirectorySeparatorChar -eq '\'
 $probe="helengine-path-probe:`n`t@printf '%s\n' 'SOURCES=`$(SRCS)' 'OBJECTS=`$(OBJS)' 'SHADERS=`$(SHADER_OBJS)' 'DEPS=`$(DEPS)' 'FLAGS=`$(HELENGINE_CXXFLAGS)'`n"
-if($isWindows){
+if($windowsHost){
     $env:PATH='C:\Program Files\Git\usr\bin;'+$env:PATH
     $make=(Get-Command mingw32-make.exe).Source
     $source=$repoRoot.Replace('\','/');$cache="$FixtureRoot/cache".Replace('\','/');$work="$FixtureRoot/work".Replace('\','/')
@@ -91,7 +91,7 @@ $old=[DateTime]::UtcNow.AddMinutes(-2)
 [IO.File]::SetLastWriteTimeUtc($localSource,$old);[IO.File]::SetLastWriteTimeUtc($localHeader,$old)
 [IO.File]::SetLastWriteTimeUtc($localObject,$old.AddMinutes(1))
 $fixturePrefix=@($prefix)
-if($isWindows){$inputMount=$inputRoot.Replace('\','/')}else{
+if($windowsHost){$inputMount=$inputRoot.Replace('\','/')}else{
     $inputMount='/fixture'
     $at=[Array]::IndexOf($fixturePrefix,'--entrypoint')
     $fixturePrefix=@($fixturePrefix[0..($at-1)])+@('--mount',"type=bind,source=$inputRoot,target=/fixture,readonly")+@($fixturePrefix[$at..($fixturePrefix.Count-1)])
