@@ -6,6 +6,8 @@
 #include <cstdio>
 #include <cstdlib>
 #include <vector>
+#include <type_traits>
+#include <cmath>
 namespace he_cpp_custom { [[noreturn]] void Fail(const char* message) { std::fprintf(stderr,"%s\n",message); std::abort(); } }
 using namespace helengine::xbox;
 struct Sink : Batch2DSink {
@@ -32,14 +34,18 @@ struct Sink : Batch2DSink {
     }
 };
 int main() {
+    static_assert(!std::is_convertible_v<Real, float>, "Use the actual explicit-conversion Real wrapper, not a primitive alias.");
+    static_assert(!std::is_convertible_v<RealEvaluation, double>, "Geometry must retain configured evaluation arithmetic.");
     Sink sink;
     RuntimeTexture texture;
     sink.Expected = &texture;
     Batch2DWriter writer(&sink,1);
     writer.ConfigureCamera(float4x4(),float4(0,0,640,480));
     Batch2DRun run(Batch2DVariant::Textured,&texture,5,6,100,90);
-    assert(EmitRoundedTexturedQuad(writer,run,10,20,20,10,0));
-    assert(EmitRoundedTexturedQuad(writer,run,10,20,20,10,3.141592653589793/2));
+    const Real x = 10, y = 20;
+    const RealEvaluation width = 20, height = 10;
+    assert(EmitRoundedTexturedQuad(writer,run,x,y,width,height,0));
+    assert(EmitRoundedTexturedQuad(writer,run,x,y,width,height,RealMath::get_PI()/2));
     writer.Flush();
     assert(sink.Order.size() == 2);
     assert(!EmitRoundedTexturedQuad(writer,run,10,20,0,10,0));

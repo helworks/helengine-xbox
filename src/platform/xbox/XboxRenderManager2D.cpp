@@ -166,7 +166,8 @@ void XboxRenderManager2D::DrawRoundedRect(::IRoundedRectDrawable2D* shape) {
     const auto fill = shape->get_FillColor(), border = shape->get_BorderColor();
     XboxRoundedStyle style;
     style.Width = static_cast<unsigned>(size.X); style.Height = static_cast<unsigned>(size.Y);
-    style.Radius = shape->get_Radius(); style.Border = shape->get_BorderThickness();
+    style.Radius = static_cast<float>(shape->get_Radius());
+    style.Border = static_cast<float>(shape->get_BorderThickness());
     style.Corners = static_cast<unsigned>(shape->get_Corners());
     style.Fill = {fill.X,fill.Y,fill.Z,fill.W}; style.Outline = {border.X,border.Y,border.Z,border.W};
     if (!NormalizeRoundedStyle(style)) { RecordUnsupported("invalid rounded shape"); return; }
@@ -364,11 +365,11 @@ void XboxRenderManager2D::DrawBatched() {
         if (!queue || queue->get_Count() == 0) continue;
         if (camera->get_RenderTarget()) he_cpp_custom::Fail("Xbox batch render targets are unsupported");
         const auto resolved = ::CameraViewportResolver::ResolveViewport(camera->get_Viewport(), renderer_->Width(), renderer_->Height());
-        const float left = static_cast<float>(std::ceil(double(resolved.X) - .5));
-        const float top = static_cast<float>(std::ceil(double(resolved.Y) - .5));
+        const ::RealEvaluation left = ::RealMath::Ceiling(resolved.X - .5);
+        const ::RealEvaluation top = ::RealMath::Ceiling(resolved.Y - .5);
         const ::float4 viewport(left, top,
-            static_cast<float>(std::ceil(double(resolved.X) + resolved.Z - .5)) - left,
-            static_cast<float>(std::ceil(double(resolved.Y) + resolved.W - .5)) - top);
+            ::RealMath::Ceiling(resolved.X + resolved.Z - .5) - left,
+            ::RealMath::Ceiling(resolved.Y + resolved.W - .5) - top);
         const auto projection = ::Batch2DCameraProjection::Create(viewport);
         batchWriter_->ConfigureCamera(projection, viewport);
         batchActive_ = true;
@@ -379,15 +380,17 @@ void XboxRenderManager2D::DrawBatched() {
 }
 
 void XboxRenderManager2D::SetCamera(::float4x4 projection, ::float4 viewport) {
-    if (!std::isfinite(viewport.X) || !std::isfinite(viewport.Y) || !std::isfinite(viewport.Z) || !std::isfinite(viewport.W) ||
+    if (!::RealEvaluation::IsFinite(viewport.X) || !::RealEvaluation::IsFinite(viewport.Y) ||
+        !::RealEvaluation::IsFinite(viewport.Z) || !::RealEvaluation::IsFinite(viewport.W) ||
         viewport.X < 0 || viewport.Y < 0 || viewport.Z <= 0 || viewport.W <= 0 ||
-        double(viewport.X) + viewport.Z > renderer_->Width() || double(viewport.Y) + viewport.W > renderer_->Height())
+        viewport.X + viewport.Z > renderer_->Width() || viewport.Y + viewport.W > renderer_->Height())
         he_cpp_custom::Fail("Invalid shared batch viewport");
     // Preserve Core rows here; the material packs the column-major HLSL buffer.
-    const float rows[] = {projection.M11, projection.M12, projection.M13, projection.M14,
-        projection.M21, projection.M22, projection.M23, projection.M24,
-        projection.M31, projection.M32, projection.M33, projection.M34,
-        projection.M41, projection.M42, projection.M43, projection.M44};
+    const float rows[] = {
+        static_cast<float>(projection.M11), static_cast<float>(projection.M12), static_cast<float>(projection.M13), static_cast<float>(projection.M14),
+        static_cast<float>(projection.M21), static_cast<float>(projection.M22), static_cast<float>(projection.M23), static_cast<float>(projection.M24),
+        static_cast<float>(projection.M31), static_cast<float>(projection.M32), static_cast<float>(projection.M33), static_cast<float>(projection.M34),
+        static_cast<float>(projection.M41), static_cast<float>(projection.M42), static_cast<float>(projection.M43), static_cast<float>(projection.M44)};
     batchProjection_ = BatchProjectionForMaterial(rows);
     batchViewport_ = viewport;
 }
@@ -396,23 +399,24 @@ void XboxRenderManager2D::Visit(::IDrawable2D* drawable) {
     if (!drawable) return;
     auto* owner = drawable->get_Parent();
     if (!owner || !owner->get_IsHierarchyEnabled()) return;
-    double left = batchViewport_.X, top = batchViewport_.Y;
-    double right = left + batchViewport_.Z, bottom = top + batchViewport_.W;
+    ::RealEvaluation left = batchViewport_.X, top = batchViewport_.Y;
+    ::RealEvaluation right = left + batchViewport_.Z, bottom = top + batchViewport_.W;
     clipChain_.clear();
     clipBuilder_.BuildClipChain(drawable, &clipChain_);
     for (auto* region : clipChain_) {
         if (!region) he_cpp_custom::Fail("Null batch clip region");
         auto clip = region->GetClipRect();
-        if (!std::isfinite(clip.X) || !std::isfinite(clip.Y) || !std::isfinite(clip.Z) || !std::isfinite(clip.W) || clip.Z < 0 || clip.W < 0)
+        if (!::RealEvaluation::IsFinite(clip.X) || !::RealEvaluation::IsFinite(clip.Y) ||
+            !::RealEvaluation::IsFinite(clip.Z) || !::RealEvaluation::IsFinite(clip.W) || clip.Z < 0 || clip.W < 0)
             he_cpp_custom::Fail("Invalid batch clip region");
-        left = std::max(left, double(clip.X)); top = std::max(top, double(clip.Y));
-        right = std::min(right, double(clip.X) + clip.Z); bottom = std::min(bottom, double(clip.Y) + clip.W);
+        left = ::RealMath::Max(left, clip.X); top = ::RealMath::Max(top, clip.Y);
+        right = ::RealMath::Min(right, clip.X + clip.Z); bottom = ::RealMath::Min(bottom, clip.Y + clip.W);
     }
-    left = std::clamp(std::ceil(left - .5), 0., double(renderer_->Width()));
-    top = std::clamp(std::ceil(top - .5), 0., double(renderer_->Height()));
-    right = std::clamp(std::ceil(right - .5), left, double(renderer_->Width()));
-    bottom = std::clamp(std::ceil(bottom - .5), top, double(renderer_->Height()));
-    batchScissor_ = ::float4(float(left), float(top), float(right - left), float(bottom - top));
+    left = ::RealMath::Clamp(::RealMath::Ceiling(left - .5), 0, renderer_->Width());
+    top = ::RealMath::Clamp(::RealMath::Ceiling(top - .5), 0, renderer_->Height());
+    right = ::RealMath::Clamp(::RealMath::Ceiling(right - .5), left, renderer_->Width());
+    bottom = ::RealMath::Clamp(::RealMath::Ceiling(bottom - .5), top, renderer_->Height());
+    batchScissor_ = ::float4(left, top, right - left, bottom - top);
     drawable->Draw();
 }
 
@@ -428,9 +432,10 @@ void XboxRenderManager2D::Submit(::Batch2DBuffer* buffer, ::Batch2DRun run) {
     XboxBatch2DSubmission submission{reinterpret_cast<const float*>(buffer->Vertices->Data),
         static_cast<unsigned>(buffer->VertexCount), buffer->Indices->Data, static_cast<unsigned>(buffer->IndexCount),
         run.ScissorX, run.ScissorY, run.ScissorWidth, run.ScissorHeight};
+    // SetCamera already validated these nonnegative pixel extents; Real exposes the signed integer boundary explicitly.
     if (!renderer_->DrawCompiledBatch(submission, batchMaterial_, batchProjection_, *texture,
-        static_cast<unsigned>(batchViewport_.X), static_cast<unsigned>(batchViewport_.Y),
-        static_cast<unsigned>(batchViewport_.Z), static_cast<unsigned>(batchViewport_.W)))
+        static_cast<unsigned>(static_cast<int32_t>(batchViewport_.X)), static_cast<unsigned>(static_cast<int32_t>(batchViewport_.Y)),
+        static_cast<unsigned>(static_cast<int32_t>(batchViewport_.Z)), static_cast<unsigned>(static_cast<int32_t>(batchViewport_.W))))
         he_cpp_custom::Fail("Xbox rejected shared batch GPU submission");
     ++batchesLastFrame_;
 }
