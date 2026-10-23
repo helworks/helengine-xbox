@@ -30,6 +30,7 @@ public sealed class XboxSourceTextureDecoder {
             TextureAsset decoded = registration.Importer.ImportTexture(portableStream)
                 ?? throw new InvalidDataException("Xbox source image could not be decoded.");
             decoded.AlphaPrecision = TextureAssetAlphaPrecision.A8;
+            decoded.PaletteColors = Array.Empty<byte>();
             return decoded;
         }
         if (!OperatingSystem.IsWindowsVersionAtLeast(6, 1)) throw new PlatformNotSupportedException("Xbox Windows image decoding requires Windows 7 or later.");
