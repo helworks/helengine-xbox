@@ -16,6 +16,16 @@ public sealed class XboxPlatformCookWorkItemExecutor {
         IReadOnlyList<PlatformBuildArtifact> artifacts,
         string packageSourceRootPath,
         CancellationToken cancellationToken) {
+        return Execute(workItems, artifacts, packageSourceRootPath, RealRepresentation.Policy, cancellationToken);
+    }
+
+    /// <summary>Cooks independent native textures with the selected target numeric envelope.</summary>
+    public IReadOnlyList<string> Execute(
+        IReadOnlyList<PlatformCookWorkItem> workItems,
+        IReadOnlyList<PlatformBuildArtifact> artifacts,
+        string packageSourceRootPath,
+        NumericPrecisionPolicy numericPolicy,
+        CancellationToken cancellationToken) {
         ArgumentNullException.ThrowIfNull(workItems);
         ArgumentNullException.ThrowIfNull(artifacts);
         if (string.IsNullOrWhiteSpace(packageSourceRootPath)) throw new ArgumentException("Package source root is required.", nameof(packageSourceRootPath));
@@ -62,7 +72,7 @@ public sealed class XboxPlatformCookWorkItemExecutor {
             using TextureAsset cooked = Cooker.Cook(source, plan.Settings);
             cooked.Id = plan.WorkItem.OutputLogicalArtifactId;
             cooked.RuntimeAssetId = RuntimeAssetIdGenerator.Generate(cooked.Id);
-            plan.Payload = helengine.files.AssetSerializer.SerializeToBytes(cooked);
+            plan.Payload = helengine.files.AssetSerializer.SerializeToBytes(cooked, numericPolicy);
         }
         cancellationToken.ThrowIfCancellationRequested();
         foreach (XboxTextureCookWorkPlan plan in plans) {

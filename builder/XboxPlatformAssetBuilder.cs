@@ -103,7 +103,7 @@ public sealed class XboxPlatformAssetBuilder : IPlatformAssetBuilder, IShaderBac
 
             PlatformCookWorkItem[] cookWorkItems = request.Manifest.PlatformCookWorkItems ?? [];
             IReadOnlyList<string> cookedPaths = new XboxPlatformCookWorkItemExecutor().Execute(
-                cookWorkItems, request.Manifest.CookedArtifacts, packageSourceRoot, cancellationToken);
+                cookWorkItems, request.Manifest.CookedArtifacts, packageSourceRoot, request.NumericPolicy, cancellationToken);
 
             progressReporter.Report(new PlatformBuildProgressUpdate("Stage Disc Content", "manifest", 0, 1, "Staging declared Xbox cooked artifacts."));
             IReadOnlyList<string> staged = new XboxContentStager().Stage(

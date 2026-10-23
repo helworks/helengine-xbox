@@ -6,6 +6,19 @@ namespace helengine.xbox.builder.tests;
 
 /// <summary>Checks batch preflight protects existing outputs and stages cooked textures and font atlases.</summary>
 public sealed class XboxTextureWorkItemTests : IDisposable {
+    /// <summary>Loads cooked texture envelopes with the exact runtime target policy.</summary>
+    [Theory]
+    [InlineData(16)]
+    [InlineData(32)]
+    [InlineData(64)]
+    public void TexturePayloadLoadsWithTargetNumericPolicy(int bits) {
+        var policy = new NumericPrecisionPolicy(bits, bits);
+        var paths = new XboxPlatformCookWorkItemExecutor().Execute([Item("textures/policy.heasset")], [], Package, policy, CancellationToken.None);
+        using var stream = File.OpenRead(Path.Combine(Package, Assert.Single(paths)));
+        using TextureAsset cooked = Assert.IsType<TextureAsset>(PackagedAssetBinarySerializer.Deserialize(stream, policy));
+        Assert.Equal(4, cooked.Width);
+    }
+
     /// <summary>Uses one fixed test root under the explicit dotnet artifacts directory.</summary>
     readonly string Root = Path.Combine(AppContext.BaseDirectory, "texture-work-items");
     /// <summary>Gets the contained package-source tree consumed by staging.</summary>
