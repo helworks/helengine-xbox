@@ -25,12 +25,12 @@ bool BuildModelTextureCoordinates(const ::ModelAsset& asset, unsigned vertexCoun
     reason = "Model UV is not finite";
     for (unsigned i = 0; i < vertexCount; ++i) {
         const auto& uv = (*asset.TexCoords)[i];
-        if (!std::isfinite(uv.X) || !std::isfinite(uv.Y)) return false;
+        if (!RealEvaluation::IsFinite(uv.X) || !RealEvaluation::IsFinite(uv.Y)) return false;
     }
     coordinates.resize(static_cast<size_t>(vertexCount) * 2);
     for (unsigned i = 0; i < vertexCount; ++i) {
-        coordinates[i * 2] = (*asset.TexCoords)[i].X;
-        coordinates[i * 2 + 1] = (*asset.TexCoords)[i].Y;
+        coordinates[i * 2] = static_cast<float>((*asset.TexCoords)[i].X);
+        coordinates[i * 2 + 1] = static_cast<float>((*asset.TexCoords)[i].Y);
     }
     reason = nullptr;
     return true;

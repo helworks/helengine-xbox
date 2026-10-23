@@ -23,7 +23,7 @@ namespace {
 constexpr ULONG_PTR kGpuHighestAddress = 0x03FFAFFF;
 
 bool Finite3(const ::float3& value) {
-    return std::isfinite(value.X) && std::isfinite(value.Y) && std::isfinite(value.Z);
+    return RealEvaluation::IsFinite(value.X) && RealEvaluation::IsFinite(value.Y) && RealEvaluation::IsFinite(value.Z);
 }
 
 // Exactly one of the two index buffers must be populated. The engine emits 16-
@@ -138,20 +138,20 @@ XboxRuntimeModel* XboxRuntimeModel::Create(const ::ModelAsset& asset, const char
     for (unsigned index = 0; index < vertexCount; ++index) {
         const ::float3& position = (*asset.Positions)[static_cast<int32_t>(index)];
         CubeVertex& vertex = model->gpuVertices_[index];
-        vertex.Position[0] = position.X;
-        vertex.Position[1] = position.Y;
-        vertex.Position[2] = position.Z;
+        vertex.Position[0] = static_cast<float>(position.X);
+        vertex.Position[1] = static_cast<float>(position.Y);
+        vertex.Position[2] = static_cast<float>(position.Z);
         vertex.Color[0] = 1.0f;
         vertex.Color[1] = 1.0f;
         vertex.Color[2] = 1.0f;
         vertex.Color[3] = 1.0f;
         const ::float3& normal = (*asset.Normals)[static_cast<int32_t>(index)];
-        vertex.Normal[0] = normal.X;
-        vertex.Normal[1] = normal.Y;
-        vertex.Normal[2] = normal.Z;
-        model->normals_[index * 3] = normal.X;
-        model->normals_[index * 3 + 1] = normal.Y;
-        model->normals_[index * 3 + 2] = normal.Z;
+        vertex.Normal[0] = static_cast<float>(normal.X);
+        vertex.Normal[1] = static_cast<float>(normal.Y);
+        vertex.Normal[2] = static_cast<float>(normal.Z);
+        model->normals_[index * 3] = static_cast<float>(normal.X);
+        model->normals_[index * 3 + 1] = static_cast<float>(normal.Y);
+        model->normals_[index * 3 + 2] = static_cast<float>(normal.Z);
     }
     for (unsigned index = 0; index < indexCount; ++index) {
         model->indices_[index] = static_cast<unsigned short>(ReadIndex(asset, index));

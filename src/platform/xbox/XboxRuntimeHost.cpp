@@ -72,14 +72,14 @@ void CaptureTitleRightSamples(::Core* core) {
             const auto position = entity->get_Position();
             const auto shadow = text->get_ShadowOffset();
             const auto size = text->get_Size();
-            const double width = ::TextLayoutAlignmentUtils::MeasureVisibleLineWidth(text->get_Text(), text->get_Font(), text->get_FontScale(), text->get_Font()->get_AtlasWidth());
-            const double effect = Math::Max(static_cast<double>(text->get_OutlineScale()), Math::Max(0.0, static_cast<double>(shadow.X)));
-            const double lineOffset = ::TextLayoutAlignmentUtils::ResolveHorizontalOffset(text->get_Alignment(), size.X, width);
-            const double snappedBase = Math::Round(position.X);
-            const double paintedRight = snappedBase + lineOffset + width + effect;
-            const double parentAnchor = entity->get_Parent()->get_Position().X;
+            const ::RealEvaluation width = ::TextLayoutAlignmentUtils::MeasureVisibleLineWidth(text->get_Text(), text->get_Font(), text->get_FontScale(), text->get_Font()->get_AtlasWidth());
+            const ::RealEvaluation effect = ::RealMath::Max(text->get_OutlineScale(), ::RealMath::Max(0, shadow.X));
+            const ::RealEvaluation lineOffset = ::TextLayoutAlignmentUtils::ResolveHorizontalOffset(text->get_Alignment(), size.X, width);
+            const ::RealEvaluation snappedBase = ::RealMath::Round(position.X);
+            const ::RealEvaluation paintedRight = snappedBase + lineOffset + width + effect;
+            const ::RealEvaluation parentAnchor = entity->get_Parent()->get_Position().X;
             auto& sample = g_titleRightSamples[titleBit == 1 ? 0 : 1];
-            sample = {text->get_FontScale(), text->get_OutlineScale(), static_cast<float>(effect), static_cast<float>(size.X), position.X, entity->get_LocalPosition().X,
+            sample = {static_cast<float>(text->get_FontScale()), static_cast<float>(text->get_OutlineScale()), static_cast<float>(effect), static_cast<float>(size.X), static_cast<float>(position.X), static_cast<float>(entity->get_LocalPosition().X),
                       static_cast<float>(parentAnchor), static_cast<float>(width), static_cast<float>(lineOffset), static_cast<float>(snappedBase),
                       static_cast<float>(paintedRight), static_cast<float>(parentAnchor - paintedRight), static_cast<uint32_t>(text->get_Alignment())};
             g_titleRightSampleMask |= titleBit;

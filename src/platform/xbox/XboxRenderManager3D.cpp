@@ -115,9 +115,9 @@ void XboxRenderManager3D::Draw() {
             lightDirection[1] = -lightWorld.Values[6];
             lightDirection[2] = -lightWorld.Values[10];
             const ::float4 color = light->get_Color();
-            lightColor[0] = color.X;
-            lightColor[1] = color.Y;
-            lightColor[2] = color.Z;
+            lightColor[0] = static_cast<float>(color.X);
+            lightColor[1] = static_cast<float>(color.Y);
+            lightColor[2] = static_cast<float>(color.Z);
             lightIntensity = light->get_Intensity();
         }
     }
@@ -153,8 +153,8 @@ void XboxRenderManager3D::Draw() {
             continue;
         }
         Matrix4 projection{};
-        if (!TryPerspective(camera->get_FieldOfView(), aspect, camera->get_NearPlaneDistance(),
-                            camera->get_FarPlaneDistance(), projection)) {
+        if (!TryPerspective(static_cast<float>(camera->get_FieldOfView()), aspect, static_cast<float>(camera->get_NearPlaneDistance()),
+                            static_cast<float>(camera->get_FarPlaneDistance()), projection)) {
             Skip("camera projection parameters are out of range");
             continue;
         }

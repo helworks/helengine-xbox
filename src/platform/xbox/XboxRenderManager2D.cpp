@@ -241,13 +241,13 @@ void XboxRenderManager2D::SubmitSprite(::ISpriteDrawable2D* sprite) {
     input.HasResolvedCorners = true;
     const ::float2 corners[]{geometry.TopLeft, geometry.TopRight, geometry.BottomRight, geometry.BottomLeft};
     for (unsigned i = 0; i < 4; ++i) {
-        input.CornerX[i] = corners[i].X;
-        input.CornerY[i] = corners[i].Y;
+        input.CornerX[i] = static_cast<float>(corners[i].X);
+        input.CornerY[i] = static_cast<float>(corners[i].Y);
     }
-    input.SourceX = source.X;
-    input.SourceY = source.Y;
-    input.SourceWidth = source.Z;
-    input.SourceHeight = source.W;
+    input.SourceX = static_cast<float>(source.X);
+    input.SourceY = static_cast<float>(source.Y);
+    input.SourceWidth = static_cast<float>(source.Z);
+    input.SourceHeight = static_cast<float>(source.W);
     input.RealTextureWidth = layout.RealWidth;
     input.RealTextureHeight = layout.RealHeight;
     input.StoredTextureWidth = layout.StorageWidth;
