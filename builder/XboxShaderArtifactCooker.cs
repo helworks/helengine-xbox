@@ -44,7 +44,7 @@ public sealed class XboxShaderArtifactCooker {
                     [vertex.ProgramDefinition, pixel.ProgramDefinition],
                     [new ShaderProgramBinary(dependency.VertexProgramName, ShaderStage.Vertex, "xbox", variant.Name, vertex.Binary.Bytecode),
                      new ShaderProgramBinary(dependency.PixelProgramName, ShaderStage.Pixel, "xbox", variant.Name, pixel.Binary.Bytecode)]);
-                prepared.Add(RelativePath(dependency.ShaderAssetId), helengine.files.AssetSerializer.SerializeToBytes(ShaderAsset.FromDefinition(module, ShaderCompileTarget.Xbox)));
+                prepared.Add(RelativePath(dependency.ShaderAssetId), SerializePackage(module, request.NumericPolicy));
             }
             foreach (var package in prepared) {
                 string destination = Path.Combine(request.CookRootPath, package.Key);
@@ -65,6 +65,12 @@ public sealed class XboxShaderArtifactCooker {
         }
         return new PlatformShaderArtifactCookResult(dependencies.Values.Select(dependency =>
             new PlatformCookedArtifactDeclaration(RelativePath(dependency.ShaderAssetId), dependency.ShaderAssetId, "shader", "xbox")).ToArray());
+    }
+
+    /// <summary>Serializes the compiled module's runtime envelope under the consuming build's captured numeric policy.</summary>
+    static byte[] SerializePackage(ShaderModuleDefinition module, NumericPrecisionPolicy numericPolicy) {
+        ArgumentNullException.ThrowIfNull(numericPolicy);
+        return helengine.files.AssetSerializer.SerializeToBytes(ShaderAsset.FromDefinition(module, ShaderCompileTarget.Xbox), numericPolicy);
     }
 
     /// <summary>Builds the canonical package filename expected by ShaderRuntimeMaterialLoader.</summary>

@@ -9,5 +9,6 @@
     <ProjectReference Include="../../shadercompiler/helengine.xbox.shadercompiler.csproj" />
     <ProjectReference Include="../../builder/shaders/helengine.xbox.shaders.csproj" />
     <ProjectReference Include="../../../helengine/engine/helengine.shader.compilation/helengine.shader.compilation.csproj" />
+    <ProjectReference Include="../../../helengine/engine/helengine.files/helengine.files.csproj" />
   </ItemGroup>
 </Project>

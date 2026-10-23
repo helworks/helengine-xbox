@@ -20,7 +20,7 @@ internal static class ShaderPairCookTest {
         PlatformShaderDependency dependency = new("Mismatch", "Mismatch.vs", "Mismatch.ps", "default");
         PlatformShaderArtifactCookSource source = new("Mismatch", "test-snapshot", File.ReadAllText(path), path);
         try {
-            cooker.CookShaderArtifacts(new PlatformShaderArtifactCookRequest(output, "xbox", "debug", "xbox-shader", [dependency], [source]));
+            cooker.CookShaderArtifacts(new PlatformShaderArtifactCookRequest(output, "xbox", "debug", "xbox-shader", [dependency], [source], helengine.RealRepresentation.Policy));
         } catch (InvalidOperationException error) when (error.Message.Contains("XBOX_SHADER_INTERFACE")) {
             if (File.Exists(Path.Combine(output, "shaders/mismatch.xbox.hasset")))
                 throw new Exception("Incompatible pair left a reusable shader package.");

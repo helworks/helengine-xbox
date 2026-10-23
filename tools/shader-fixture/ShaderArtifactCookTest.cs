@@ -26,7 +26,7 @@ internal static class ShaderArtifactCookTest {
         PlatformShaderArtifactCookSource source = new("XboxFixtureColour", hash, text, sourcePath);
         string output = Path.Combine(root, ".xbox/verification/cook-" + Guid.NewGuid().ToString("N"));
         PlatformShaderArtifactCookResult result = cooker.CookShaderArtifacts(new PlatformShaderArtifactCookRequest(
-            output, "xbox", "debug", "xbox-shader", [dependency, dependency], [source]));
+            output, "xbox", "debug", "xbox-shader", [dependency, dependency], [source], helengine.RealRepresentation.Policy));
         if (result.CookedArtifactDeclarations.Count != 1) throw new InvalidOperationException("Cook must deduplicate identical material dependencies.");
         var declaration = result.CookedArtifactDeclarations[0];
         if (declaration.RelativePath != "shaders/xboxfixturecolour.xbox.hasset" || declaration.ArtifactKind != "shader")
@@ -43,16 +43,16 @@ internal static class ShaderArtifactCookTest {
                 BitConverter.ToUInt32(binary.Bytecode, 8) != (stage == ShaderStage.Vertex ? 1u : 2u))
                 throw new InvalidOperationException("Cooked package contains an invalid Xbox stage.");
         }
-        AssertRejected(() => cooker.CookShaderArtifacts(new PlatformShaderArtifactCookRequest(output, "windows", "debug", "xbox-shader", [], [])));
+        AssertRejected(() => cooker.CookShaderArtifacts(new PlatformShaderArtifactCookRequest(output, "windows", "debug", "xbox-shader", [], [], helengine.RealRepresentation.Policy)));
         PlatformShaderDependency unsupported = new("XboxFixtureColour", "XboxFixtureColour.vs", "XboxFixtureColour.ps", "UnknownVariant");
-        AssertRejected(() => cooker.CookShaderArtifacts(new PlatformShaderArtifactCookRequest(output, "xbox", "debug", "xbox-shader", [unsupported], [source])));
+        AssertRejected(() => cooker.CookShaderArtifacts(new PlatformShaderArtifactCookRequest(output, "xbox", "debug", "xbox-shader", [unsupported], [source], helengine.RealRepresentation.Policy)));
         if (!File.Exists(Path.Combine(output, declaration.RelativePath))) throw new InvalidOperationException("Invalid request mutated an unrelated successful default package.");
         PlatformShaderArtifactCookSource invalidSource = new("XboxFixtureColour", hash, "float4 VS() : SV_Position { return missing_symbol; }", sourcePath);
-        AssertRejected(() => cooker.CookShaderArtifacts(new PlatformShaderArtifactCookRequest(output, "xbox", "debug", "xbox-shader", [dependency], [invalidSource])));
+        AssertRejected(() => cooker.CookShaderArtifacts(new PlatformShaderArtifactCookRequest(output, "xbox", "debug", "xbox-shader", [dependency], [invalidSource], helengine.RealRepresentation.Policy)));
         if (File.Exists(Path.Combine(output, declaration.RelativePath))) throw new InvalidOperationException("Failed recompilation left a reusable stale shader package.");
         Environment.SetEnvironmentVariable("HELENGINE_XBOX_EXPERIMENTAL_SHADER_RUNTIME", "0");
         IPlatformShaderArtifactBuilder legacy = (IPlatformShaderArtifactBuilder)Activator.CreateInstance(assembly.GetType("helengine.xbox.builder.XboxPlatformAssetBuilder", true));
-        AssertRejected(() => legacy.CookShaderArtifacts(new PlatformShaderArtifactCookRequest(output, "xbox", "debug", "xbox-shader", [dependency], [source])));
+        AssertRejected(() => legacy.CookShaderArtifacts(new PlatformShaderArtifactCookRequest(output, "xbox", "debug", "xbox-shader", [dependency], [source], helengine.RealRepresentation.Policy)));
         Console.WriteLine("Actual builder shader cook and duplicate dependency publication passed: " + output);
         Console.WriteLine("Foreign target/variant/legacy requests rejected; failed compilation removed the requested stale package.");
     }
