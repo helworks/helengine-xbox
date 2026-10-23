@@ -5,6 +5,13 @@ using helengine.xbox.shaderprobe;
 internal static class Program {
     /// <summary>Compiles the supported entries and checks returned binary stage and deterministic payload.</summary>
     public static int Main(string[] args) {
+        if (args[0] == "--host-portability") {
+            HostPortabilityTests.Run(Path.GetFullPath(args[1]));
+            return 0;
+        }
+        if (args[0] == "--compile-lock-probe") {
+            return HostPortabilityTests.ProbeCompileLock(Path.GetFullPath(args[1]));
+        }
         if (args[0] == "--builder-shader-mode") {
             BuilderShaderModeTests.Run(args[1]);
             return 0;

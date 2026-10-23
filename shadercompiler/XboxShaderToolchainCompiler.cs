@@ -1,11 +1,13 @@
 using System.Security.Cryptography;
 using System.Text;
+using System.Runtime.InteropServices;
+using System.Text.Json;
 
 namespace helengine.xbox.shaderprobe;
 
 /// <summary>Compiles a single entry point into validated Xbox data using the pinned native tools.</summary>
 public sealed class XboxShaderToolchainCompiler {
-    /// <summary>Compiles one stage, retaining job evidence under the repository's ignored .xbox directory.</summary>
+    /// <summary>Compiles one stage, retaining bounded evidence in the configured external build workspace.</summary>
     public XboxShaderBuildResult Compile(string repositoryRoot, string sourcePath, string entryPoint,
                                         bool vertexStage, CancellationToken cancellationToken = default) {
         cancellationToken.ThrowIfCancellationRequested();
@@ -22,18 +24,23 @@ public sealed class XboxShaderToolchainCompiler {
         bool vertexStage = request.VertexStage;
         string entryPoint = request.EntryPoint;
         string root = Path.GetFullPath(repositoryRoot);
-        string job = Path.Combine(root, ".xbox", "shader-jobs", Guid.NewGuid().ToString("N"));
-        string cgc = Path.Combine(root, ".xbox/dependencies/nxdk/tools/cg/win/cgc.exe");
+        string job = ResolveJobRoot(root, vertexStage);
+        using FileStream jobLock = AcquireJobLock(job);
+        Directory.CreateDirectory(job);
+        // A failed tool may leave a partial result. Never reuse a previous compile's executable output.
+        foreach (string filename in new[] { "shader.asm", "shader.inl", "shader.hxsb", "extract" })
+            File.Delete(Path.Combine(job, filename));
+        string platform = OperatingSystem.IsWindows() ? "windows" : OperatingSystem.IsMacOS() ? "macos" : OperatingSystem.IsLinux() ? "linux" : "unsupported";
+        string cgc = Path.Combine(root, RelativeCgPath(platform, RuntimeInformation.ProcessArchitecture));
         if (!File.Exists(cgc)) throw new FileNotFoundException("Pinned Cg executable is missing.", cgc);
         Dictionary<string, string> toolLock = File.ReadAllLines(Path.Combine(root, "toolchain-lock.txt"))
             .Where(line => !line.StartsWith('#') && line.Contains('='))
             .Select(line => line.Split('=', 2)).ToDictionary(parts => parts[0], parts => parts[1]);
-        Directory.CreateDirectory(job);
         string nxdkRoot = Path.Combine(root, ".xbox/dependencies/nxdk");
         string revision = XboxShaderToolProcess.Run("git", ["-c", "safe.directory=" + nxdkRoot, "-C", nxdkRoot, "rev-parse", "HEAD"], job, "nxdk-revision", cancellationToken).Trim();
-        string imageId = XboxShaderToolProcess.Run("docker", ["image", "inspect", toolLock["LocalImageTag"], "--format", "{{.Id}}"], job, "image-id", cancellationToken).Trim();
-        if (revision != toolLock["NxdkCommit"] || imageId != toolLock["LocalImageId"])
+        if (revision != toolLock["NxdkCommit"])
             throw new InvalidOperationException("Xbox shader toolchain does not match toolchain-lock.txt.");
+        string imageId = ResolveSdkImage(root, job, toolLock, cancellationToken);
         XboxShaderProbeOutput translation;
         try {
             translation = new XboxShaderCompatibilityProbe().Translate(request);
@@ -99,21 +106,21 @@ public sealed class XboxShaderToolchainCompiler {
         }
         File.WriteAllBytes(Path.Combine(job, "shader.bindings"), bindingTable);
         string translator = vertexStage ? "vp20compiler" : "fp20compiler";
-        string generated = Docker(root, job, toolLock["LocalImageTag"], "translate",
+        string generated = Docker(root, job, imageId, "translate",
             $"/opt/nxdk/tools/{translator}/{translator}", ["/job/shader.asm"], cancellationToken);
         if (string.IsNullOrWhiteSpace(generated)) throw new InvalidOperationException("NXDK emitted no shader commands.");
         File.WriteAllText(Path.Combine(job, "shader.inl"), generated);
         List<string> build = ["-std=c++17", "-Wall", "-Wextra", "-Werror", "-I/src/src", "-I/opt/nxdk/lib", "-I/job"];
         if (vertexStage) build.Add("-DXBOX_EXTRACT_VERTEX");
         build.AddRange(["/src/tools/shader-probe/native/ExtractShaderArtifact.cpp", "/src/src/platform/xbox/XboxShaderArtifact.cpp", "-o", "/job/extract"]);
-        Docker(root, job, toolLock["LocalImageTag"], "extractor-build", "g++", build, cancellationToken);
-        string identity = revision + imageId + HashFile(cgc) + HashFile(typeof(XboxShaderToolchainCompiler).Assembly.Location)
+        Docker(root, job, imageId, "extractor-build", "g++", build, cancellationToken);
+        string identity = revision + toolLock["LocalImageId"] + HashFile(cgc) + HashFile(typeof(XboxShaderToolchainCompiler).Assembly.Location)
             + HashFile(XboxShaderNativeLibraries.Shaderc)
             + HashFile(XboxShaderNativeLibraries.SpirvCross)
             + HashFile(Path.Combine(root, "tools/shader-probe/native/ExtractShaderArtifact.cpp"))
             + HashFile(Path.Combine(root, "tools/shader-probe/native/XboxPixelShaderBaseline.hpp"))
             + HashFile(Path.Combine(root, "src/platform/xbox/XboxShaderArtifact.cpp"));
-        Docker(root, job, toolLock["LocalImageTag"], "extract", "/job/extract",
+        Docker(root, job, imageId, "extract", "/job/extract",
             ["/job/shader.hxsb", translation.SourceIdentity, HashText(identity), HashText(entryPoint), "/job/shader.bindings", "/job/shader.resources"], cancellationToken);
         cancellationToken.ThrowIfCancellationRequested();
         return new XboxShaderBuildResult(File.ReadAllBytes(Path.Combine(job, "shader.hxsb")), job, translation) {
@@ -123,6 +130,88 @@ public sealed class XboxShaderToolchainCompiler {
             PixelConstants = pixelConstants,
             TextureBindings = textureBindings
         };
+    }
+
+    /// <summary>Selects an existing SDK compiler; the Mac binary includes x64 and uses installed Rosetta on arm64.</summary>
+    static string RelativeCgPath(string platform, Architecture architecture) {
+        string host;
+        if (platform == "windows" && architecture == Architecture.X64) host = "win/cgc.exe";
+        else if (platform == "macos" && (architecture == Architecture.X64 || architecture == Architecture.Arm64)) host = "mac/cgc";
+        else if (platform == "linux" && architecture == Architecture.X64) host = "linux/cgc";
+        else throw new PlatformNotSupportedException($"Pinned Xbox Cg does not support {platform}/{architecture}.");
+        return Path.Combine(".xbox", "dependencies", "nxdk", "tools", "cg", host.Replace('/', Path.DirectorySeparatorChar));
+    }
+
+    /// <summary>Reuses fixed external stage directories in the caller workspace or standard host temporary root.</summary>
+    static string ResolveJobRoot(string repository, bool vertex) {
+        string workspace = Environment.GetEnvironmentVariable("HELENGINE_BUILD_WORKSPACE_ROOT");
+        if (string.IsNullOrWhiteSpace(workspace)) workspace = Path.Combine(Path.GetTempPath(), "helengine", "xbox");
+        if (!Path.IsPathFullyQualified(workspace)) throw new InvalidOperationException("Xbox shader scratch requires an absolute external path.");
+        string job = PhysicalDirectoryPath(Path.Combine(workspace, "shader", vertex ? "vertex" : "pixel"));
+        if (IsWithin(job, PhysicalDirectoryPath(repository))) throw new InvalidOperationException("Xbox shader scratch must be outside the source checkout.");
+        return job;
+    }
+
+    /// <summary>Resolves existing ancestor links before comparing or creating an external scratch directory.</summary>
+    static string PhysicalDirectoryPath(string path) {
+        string full = Path.GetFullPath(path);
+        string root = Path.GetPathRoot(full);
+        string current = root;
+        foreach (string component in full[root.Length..].Split(Path.DirectorySeparatorChar, StringSplitOptions.RemoveEmptyEntries)) {
+            current = Path.Combine(current, component);
+            DirectoryInfo directory = new(current);
+            if (directory.LinkTarget != null) current = directory.ResolveLinkTarget(true).FullName;
+        }
+        return current;
+    }
+
+    /// <summary>Compares normalized directory boundaries without matching sibling prefixes.</summary>
+    static bool IsWithin(string path, string root) {
+        StringComparison comparison = OperatingSystem.IsWindows() ? StringComparison.OrdinalIgnoreCase : StringComparison.Ordinal;
+        string full = Path.GetFullPath(path).TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar);
+        string parent = Path.GetFullPath(root).TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar);
+        return full.Equals(parent, comparison) || full.StartsWith(parent + Path.DirectorySeparatorChar, comparison);
+    }
+
+    /// <summary>Rejects competing compiles across processes before writing any shared stage evidence.</summary>
+    static FileStream AcquireJobLock(string job) {
+        string directory = Path.GetDirectoryName(job);
+        Directory.CreateDirectory(directory);
+        return new FileStream(Path.Combine(directory, "compile.lock"), FileMode.OpenOrCreate, FileAccess.ReadWrite, FileShare.None);
+    }
+
+    /// <summary>Reuses the native builder's canonical SDK proof; only the proven local ID selects execution.</summary>
+    static string ResolveSdkImage(string repository, string job, Dictionary<string, string> toolLock, CancellationToken cancellationToken) {
+        string helper = Path.Combine(repository, "scripts", "xbox-sdk-identity.ps1");
+        if (!File.Exists(helper)) throw new FileNotFoundException("Existing Xbox SDK identity verifier is missing.", helper);
+        string adapter = Path.Combine(job, "resolve-sdk.ps1");
+        File.WriteAllText(adapter, """
+            param([string]$HelperPath, [string]$CanonicalImageId, [string]$LockedTag)
+            $ErrorActionPreference = 'Stop'
+            function Invoke-CheckedNative {
+                param([string]$Executable, [string[]]$Arguments)
+                $previous = $ErrorActionPreference
+                $ErrorActionPreference = 'Continue'
+                try {
+                    $result = & $Executable @Arguments 2>&1
+                    $exitCode = $LASTEXITCODE
+                } finally { $ErrorActionPreference = $previous }
+                if ($exitCode -ne 0) { throw ($result -join [Environment]::NewLine) }
+                return @($result | Where-Object { $_ -isnot [Management.Automation.ErrorRecord] } | ForEach-Object { "$_" })
+            }
+            . $HelperPath
+            Get-XboxSdkImageIdentity -CanonicalImageId $CanonicalImageId -LockedTag $LockedTag | ConvertTo-Json -Compress
+            """);
+        string output = XboxShaderToolProcess.Run(OperatingSystem.IsWindows() ? "powershell.exe" : "pwsh",
+            ["-NoProfile", "-NonInteractive", "-File", adapter, helper, toolLock["LocalImageId"], toolLock["LocalImageTag"]],
+            job, "sdk-identity", cancellationToken);
+        using JsonDocument proof = JsonDocument.Parse(output);
+        string canonical = proof.RootElement.GetProperty("CanonicalImageId").GetString();
+        string local = proof.RootElement.GetProperty("LocalImageId").GetString();
+        if (canonical != toolLock["LocalImageId"] || local == null ||
+            !System.Text.RegularExpressions.Regex.IsMatch(local, "^sha256:[0-9a-f]{64}$"))
+            throw new InvalidOperationException("Existing Xbox SDK verifier returned an invalid image identity.");
+        return local;
     }
 
     /// <summary>Writes a bounded resource identity and physical stage into the native record.</summary>

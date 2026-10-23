@@ -10,7 +10,7 @@ public sealed class XboxShaderBuildResult {
     }
     /// <summary>Gets the HXS1 bytes validated by the native extractor.</summary>
     public byte[] Binary { get; }
-    /// <summary>Gets the unique retained job directory for compiler diagnostics.</summary>
+    /// <summary>Gets the reused stage directory containing the most recent compiler diagnostics; result bytes and metadata are owned independently.</summary>
     public string JobRoot { get; }
     /// <summary>Gets the source and reflected interface used for the compilation.</summary>
     public XboxShaderProbeOutput Translation { get; }
