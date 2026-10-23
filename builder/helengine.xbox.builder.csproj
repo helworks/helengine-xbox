@@ -14,6 +14,7 @@
     <ProjectReference Include="$(HelengineRoot)\engine\helengine.baseplatform\helengine.baseplatform.csproj" />
     <ProjectReference Include="$(HelengineRoot)\engine\helengine.core\helengine.core.csproj" />
     <ProjectReference Include="$(HelengineRoot)\engine\helengine.editor\helengine.editor.csproj" />
+    <ProjectReference Include="$(HelengineRoot)\engine\helengine.editor.portableimporter\helengine.editor.portableimporter.csproj" />
     <ProjectReference Include="$(HelengineRoot)\engine\helengine.files\helengine.files.csproj" />
   </ItemGroup>
   <Target Name="ValidateHelengineRoot" BeforeTargets="CollectPackageReferences">
