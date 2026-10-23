@@ -99,13 +99,34 @@ if($windowsHost){$inputMount=$inputRoot.Replace('\','/')}else{
 $objectTarget="$cache/objects/src/local.obj"
 [IO.File]::WriteAllText($localDep,"$objectTarget`: $inputMount/src/local.cpp $inputMount/src/local.hpp`n")
 $fixtureArgs=@("SOURCE_ROOT=$inputMount","SRCS=$inputMount/src/local.cpp","NATIVE_OBJECT_ROOT=$cache/objects",'SHADER_OBJS=',"OUTPUT_DIR=$work/disc","GEN_XISO=$work/game.iso")
+function Wait-FixtureTimesVisible([string[]]$HostPaths,[string[]]$MountedPaths) {
+    if($windowsHost){return}
+    # Docker Desktop may briefly retain old bind-mount metadata after a host
+    # write. Verify the fixture input reached the container before asking make
+    # once; retrying make itself could conceal a dependency-rule failure.
+    $entrypoint=[Array]::IndexOf($fixturePrefix,'--entrypoint')
+    $statPrefix=@($fixturePrefix[0..($entrypoint+2)])
+    $statPrefix[$entrypoint+1]='stat'
+    $expected=@($HostPaths|ForEach-Object { ([DateTimeOffset][IO.File]::GetLastWriteTimeUtc($_)).ToUnixTimeSeconds().ToString([Globalization.CultureInfo]::InvariantCulture) })
+    $deadline=[DateTime]::UtcNow.AddSeconds(5)
+    do {
+        $actual=@(& $make @statPrefix '-c' '%Y' @MountedPaths 2>&1)
+        if($LASTEXITCODE -ne 0){throw "Fixture metadata query failed: $($actual -join '; ')"}
+        if(($actual -join ',') -ceq ($expected -join ',')){return}
+        Start-Sleep -Milliseconds 100
+    } while([DateTime]::UtcNow -lt $deadline)
+    throw "Fixture bind-mount metadata stayed stale; expected $($expected -join ','), observed $($actual -join ',')."
+}
+Wait-FixtureTimesVisible @($localSource,$localHeader,$localObject) @("$inputMount/src/local.cpp","$inputMount/src/local.hpp",$objectTarget)
 & $make @fixturePrefix @fixtureArgs '-q' $objectTarget '--no-print-directory' 2>&1|Out-Null
 Check ($LASTEXITCODE -eq 0) 'Fresh local object was not up to date.'
 [IO.File]::AppendAllText($localSource,'// uncommitted source mutation')
+Wait-FixtureTimesVisible @($localSource) @("$inputMount/src/local.cpp")
 & $make @fixturePrefix @fixtureArgs '-q' $objectTarget '--no-print-directory' 2>&1|Out-Null
 Check ($LASTEXITCODE -eq 1) 'Changed local source did not invalidate its external object.'
 [IO.File]::SetLastWriteTimeUtc($localSource,$old)
 [IO.File]::AppendAllText($localHeader,'// uncommitted header mutation')
+Wait-FixtureTimesVisible @($localSource,$localHeader) @("$inputMount/src/local.cpp","$inputMount/src/local.hpp")
 & $make @fixturePrefix @fixtureArgs '-q' $objectTarget '--no-print-directory' 2>&1|Out-Null
 Check ($LASTEXITCODE -eq 1) 'Included local header did not invalidate its external object.'
 $fixtureDry=@(& $make @fixturePrefix @fixtureArgs '-n' $objectTarget '--no-print-directory' 2>&1)
