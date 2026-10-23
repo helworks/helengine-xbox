@@ -57,10 +57,37 @@ internal static class HostPortabilityTests {
             }
             Console.WriteLine("Fixed external scratch is reused and a second process cannot compile into an owned job.");
             VerifyIdentityAdapter(repository,vertex);
+            VerifyNativeLifetime(libraries);
             var translated=new XboxShaderCompatibilityProbe().Translate(Path.Combine(repository,"tests/shaders/colour.hlsl"),"VSMain",true);
             if(translated.Spirv.Length==0) throw new Exception("Actual host shaderc/SPIRV-Cross frontend returned no SPIR-V.");
-            Console.WriteLine("Actual host native shaderc and SPIRV-Cross libraries load and translate the existing fixture.");
+            for(int index=0;index<3;index++) {
+                var repeated=new XboxShaderCompatibilityProbe().Translate(Path.Combine(repository,"tests/shaders/colour.hlsl"),"VSMain",true);
+                if(!translated.Spirv.SequenceEqual(repeated.Spirv) || translated.Source!=repeated.Source)
+                    throw new Exception("Disposing one frontend context changed a later translation.");
+            }
+            Console.WriteLine("Actual host frontend translates repeatedly with per-call context disposal; normal process exit remains required.");
         } finally {Environment.SetEnvironmentVariable("HELENGINE_BUILD_WORKSPACE_ROOT",previous);}
+    }
+
+    /// <summary>Races the real native path getter and requires one retained Mac reference in this loaded backend, with other hosts untouched.</summary>
+    static void VerifyNativeLifetime(Type libraries) {
+        FieldInfo field = libraries.GetField("MacSpirvCrossReference",BindingFlags.Static|BindingFlags.NonPublic)
+            ?? throw new Exception("Missing bounded Mac native library lifetime reference.");
+        var reference = (Lazy<IntPtr>)field.GetValue(null);
+        if(reference.IsValueCreated) throw new Exception("Native reference was loaded eagerly before a caller requested SPIRV-Cross.");
+        PropertyInfo property = libraries.GetProperty("SpirvCross",BindingFlags.Static|BindingFlags.NonPublic);
+        string[] paths = new string[16];
+        Parallel.For(0,paths.Length,new ParallelOptions {MaxDegreeOfParallelism=4},index=>paths[index]=(string)property.GetValue(null));
+        foreach(string path in paths) Equal(paths[0],path);
+        if(OperatingSystem.IsMacOS()) {
+            if(!reference.IsValueCreated || reference.Value==IntPtr.Zero) throw new Exception("Mac frontend did not retain its exact native library.");
+            IntPtr retained = reference.Value;
+            for(int index=0;index<16;index++) {
+                property.GetValue(null);
+                if(reference.Value!=retained) throw new Exception("Native lifetime reference changed within one loaded backend.");
+            }
+            Console.WriteLine("Concurrent Mac callers share one retained native reference in the current backend assembly context.");
+        } else if(reference.IsValueCreated) throw new Exception("Mac lifetime retention changed another host's library ownership.");
     }
 
     /// <summary>Invokes the public compile boundary in another process while the parent holds its real file lock.</summary>

@@ -4,10 +4,25 @@ namespace helengine.xbox.shaderprobe;
 
 /// <summary>Resolves native tools beside this compiler, not beside its editor or CLI host.</summary>
 internal static class XboxShaderNativeLibraries {
+    /// <summary>
+    /// Retains one Mac loader reference per loaded backend assembly. The supported editor/CLI loader uses the
+    /// non-collectible default context. SPIRV-Cross registers exit destructors during translation, so unloading
+    /// its image before process exit leaves those callbacks pointing at unmapped code. This reference is never
+    /// freed; each compilation still destroys its native context and disposes its own Silk loader reference.
+    /// </summary>
+    static readonly Lazy<IntPtr> MacSpirvCrossReference = new(() => NativeLibrary.Load(Resolve("spirv-cross.dll")),
+        LazyThreadSafetyMode.ExecutionAndPublication);
+
     /// <summary>Gets the exact shaderc binary used for compilation and tool identity.</summary>
     internal static string Shaderc => Resolve("shaderc_shared.dll");
     /// <summary>Gets the exact SPIRV-Cross binary used for translation and tool identity.</summary>
-    internal static string SpirvCross => Resolve("spirv-cross.dll");
+    internal static string SpirvCross {
+        get {
+            string path = Resolve("spirv-cross.dll");
+            if (OperatingSystem.IsMacOS()) _ = MacSpirvCrossReference.Value;
+            return path;
+        }
+    }
 
     /// <summary>Selects only native dependencies shipped for the actual host.</summary>
     static string RelativeLibraryPath(string platform, Architecture architecture, string filename) {
