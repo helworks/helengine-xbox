@@ -60,10 +60,11 @@ Matrix4 MatrixFromGenerated(const GeneratedMatrixFields& g) {
 #if defined(HELENGINE_XBOX_HAS_GENERATED_CORE)
 Matrix4 MatrixFromGenerated(const ::float4x4& generated) {
     GeneratedMatrixFields fields{};
-    fields.M11 = generated.M11; fields.M12 = generated.M12; fields.M13 = generated.M13; fields.M14 = generated.M14;
-    fields.M21 = generated.M21; fields.M22 = generated.M22; fields.M23 = generated.M23; fields.M24 = generated.M24;
-    fields.M31 = generated.M31; fields.M32 = generated.M32; fields.M33 = generated.M33; fields.M34 = generated.M34;
-    fields.M41 = generated.M41; fields.M42 = generated.M42; fields.M43 = generated.M43; fields.M44 = generated.M44;
+    // Xbox's matrix contract stores IEEE32 values; convert only at this native boundary.
+    fields.M11 = static_cast<float>(generated.M11); fields.M12 = static_cast<float>(generated.M12); fields.M13 = static_cast<float>(generated.M13); fields.M14 = static_cast<float>(generated.M14);
+    fields.M21 = static_cast<float>(generated.M21); fields.M22 = static_cast<float>(generated.M22); fields.M23 = static_cast<float>(generated.M23); fields.M24 = static_cast<float>(generated.M24);
+    fields.M31 = static_cast<float>(generated.M31); fields.M32 = static_cast<float>(generated.M32); fields.M33 = static_cast<float>(generated.M33); fields.M34 = static_cast<float>(generated.M34);
+    fields.M41 = static_cast<float>(generated.M41); fields.M42 = static_cast<float>(generated.M42); fields.M43 = static_cast<float>(generated.M43); fields.M44 = static_cast<float>(generated.M44);
     return MatrixFromGenerated(fields);
 }
 #endif
