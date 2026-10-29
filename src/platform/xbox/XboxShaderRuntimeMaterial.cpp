@@ -9,6 +9,7 @@
 #include "MaterialLayoutBuilder.hpp"
 #include "MaterialLayout.hpp"
 #include "MaterialLayoutBinding.hpp"
+#include "MaterialLayoutBindings.hpp"
 #include "MaterialPropertyBlock.hpp"
 #include "MaterialConstantBufferAsset.hpp"
 #include "MaterialRenderState.hpp"
@@ -126,15 +127,15 @@ XboxShaderRuntimeMaterial* XboxShaderRuntimeMaterial::Create(const ::ShaderMater
     // RoughnessBuffer). Only the selected pair's layout owns runtime slots.
     auto* layout = result->get_Layout();
     auto* layoutBuffers = layout->get_ConstantBufferBindings();
-    std::vector<bool> applied(static_cast<size_t>(layoutBuffers->Length), false);
+    std::vector<bool> applied(static_cast<size_t>(layoutBuffers->get_Length()), false);
     for (int i = 0; i < material.ConstantBuffers->Length; ++i) {
         auto* value = (*material.ConstantBuffers)[i];
         reason = "Invalid authored constant-buffer default";
         if (value == nullptr || value->Name.empty()) return nullptr;
         const int slot = layout->FindConstantBufferBindingIndex(value->Name);
         if (slot < 0) continue;
-        auto* binding = (*layoutBuffers)[slot];
-        if (applied[slot] || value->Data == nullptr || value->Data->Length != binding->Size) return nullptr;
+        auto* binding = layoutBuffers->get_Item(slot);
+        if (applied[slot] || value->Data == nullptr || value->Data->Length != binding->get_Size()) return nullptr;
         result->get_Properties()->SetConstantBufferData(slot, value->Data);
         applied[slot] = true;
     }
